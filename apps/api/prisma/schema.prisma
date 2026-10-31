@@ -1,4 +1,6 @@
-// Money columns are integer paise (*Paise). Date-only columns use @db.Date.
+// Money columns are integer paise (*Paise). Date-only columns use @db.Date. Times of day are "HH:mm" strings.
+// Ledger-style tables added from M3 on keep `branchId` / `createdById` as plain indexed columns (no FK):
+// branches and users are deactivated, never deleted, and this keeps the relation graph manageable.
 
 generator client {
   provider = "prisma-client-js"
@@ -8,6 +10,8 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum Role {
   SUPERADMIN
@@ -62,6 +66,140 @@ enum EnquiryStatus {
   CLOSED
 }
 
+enum AppointmentStatus {
+  REQUESTED // online booking waiting for the salon to confirm
+  BOOKED
+  CHECKED_IN
+  BILLED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  WALK_IN
+  PHONE
+  WEBSITE
+  APP
+  OTHER
+}
+
+enum BillStatus {
+  PAID
+  PARTIAL
+  VOID
+}
+
+enum BillItemKind {
+  SERVICE
+  PRODUCT
+  PACKAGE
+  MEMBERSHIP
+  GIFT_CARD
+  OPENING_BALANCE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+  CHEQUE
+  WALLET
+  GIFT_CARD
+  OTHER
+}
+
+enum PaymentKind {
+  BILL
+  ADVANCE
+  DUE_COLLECTION
+  WALLET_TOPUP
+}
+
+enum DiscountType {
+  PERCENT
+  FLAT
+}
+
+enum WalletReason {
+  TOPUP
+  BILL_PAYMENT
+  REFUND
+  ADJUSTMENT
+  OPENING
+}
+
+enum PointsReason {
+  EARN
+  REDEEM
+  REVERSAL
+  ADJUSTMENT
+  OPENING
+}
+
+enum ProductUnit {
+  PCS
+  ML
+  L
+  G
+  KG
+  PKT
+}
+
+enum StockReason {
+  OPENING
+  PURCHASE
+  SALE
+  USAGE
+  ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  BILL_VOID
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+}
+
+enum SalaryKind {
+  SALARY
+  ADVANCE
+  INCENTIVE
+  BONUS
+  DEDUCTION
+}
+
+enum MessageChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum MessageKind {
+  BIRTHDAY
+  ANNIVERSARY
+  APPOINTMENT_CONFIRMATION
+  APPOINTMENT_REMINDER
+  BILL_RECEIPT
+  PENDING_DUE
+  PACKAGE_EXPIRY
+  SERVICE_REMINDER
+  FEEDBACK_REQUEST
+  CUSTOM
+}
+
+// ─── M1 Foundation ────────────────────────────────────────────────────────────
+
 model Organization {
   id        String   @id @default(uuid())
   name      String
@@ -77,6 +215,8 @@ model Branch {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
   name           String
+  /// URL-safe identifier for the public booking/feedback pages, e.g. "andheri".
+  slug           String?      @unique
   salonName      String
   phone          String?
   email          String?
@@ -123,6 +263,7 @@ model User {
   assignedEnquiries Enquiry[]         @relation("EnquiryAssignee")
   createdFollowUps  ClientFollowUp[]
   enquiryResponses  EnquiryResponse[]
+  bills             Bill[]            @relation("BillCreator")
 }
 
 model UserBranch {
@@ -160,6 +301,11 @@ model Staff {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
+  appointmentItems AppointmentItem[]
+  billItems        BillItem[]
+  attendance       Attendance[]
+  salaryEntries    SalaryEntry[]
+
   @@unique([branchId, phone])
   @@index([branchId, kind, isActive])
 }
@@ -193,6 +339,12 @@ model Service {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
+  appointmentItems   AppointmentItem[]
+  billItems          BillItem[]
+  packageItems       PackageItem[]
+  clientPackageItems ClientPackageItem[]
+  reminderRules      ServiceReminderRule[]
+
   @@unique([branchId, categoryId, name])
   @@index([branchId, isActive])
 }
@@ -211,19 +363,28 @@ model TaxRate {
 }
 
 model BranchSetting {
-  branchId           String   @id
-  branch             Branch   @relation(fields: [branchId], references: [id])
-  autoBirthday       Boolean  @default(true)
-  autoAnniversary    Boolean  @default(true)
-  autoAppointment    Boolean  @default(true)
-  autoPendingPayment Boolean  @default(false)
-  autoPackageExpiry  Boolean  @default(false)
+  branchId            String   @id
+  branch              Branch   @relation(fields: [branchId], references: [id])
+  autoBirthday        Boolean  @default(true)
+  autoAnniversary     Boolean  @default(true)
+  autoAppointment     Boolean  @default(true)
+  autoPendingPayment  Boolean  @default(false)
+  autoPackageExpiry   Boolean  @default(false)
   /// `redeemPoints` points are worth `redeemValuePaise`.
-  redeemPoints       Int      @default(1)
-  redeemValuePaise   Int      @default(100)
+  redeemPoints        Int      @default(1)
+  redeemValuePaise    Int      @default(100)
   /// 0 = no cap per bill.
-  maxRedeemPoints    Int      @default(0)
-  updatedAt          DateTime @updatedAt
+  maxRedeemPoints     Int      @default(0)
+  /// TaxRate ids pre-selected on new bill lines.
+  defaultServiceTaxId String?
+  defaultProductTaxId String?
+  /// Bill numbers look like "<prefix>-000123"; defaults to the branch name's initials.
+  billPrefix          String?
+  /// Round bill totals to the nearest rupee.
+  roundOffBills       Boolean  @default(true)
+  onlineBooking       Boolean  @default(true)
+  feedbackRequests    Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
 }
 
 model Holiday {
@@ -235,6 +396,8 @@ model Holiday {
 
   @@unique([branchId, date])
 }
+
+// ─── M2 Clients & enquiries ───────────────────────────────────────────────────
 
 /// Clients belong to the organisation (they may visit any branch); `homeBranch` is where they were added.
 model Client {
@@ -259,8 +422,15 @@ model Client {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  followUps ClientFollowUp[]
-  enquiries Enquiry[]
+  followUps     ClientFollowUp[]
+  enquiries     Enquiry[]
+  appointments  Appointment[]
+  bills         Bill[]
+  walletEntries WalletEntry[]
+  pointsEntries PointsEntry[]
+  memberships   ClientMembership[]
+  packages      ClientPackage[]
+  feedback      Feedback[]
 
   @@unique([organizationId, phone])
   @@index([organizationId, name])
@@ -284,11 +454,11 @@ model ClientFollowUp {
 }
 
 model Enquiry {
-  id           String          @id @default(uuid())
+  id           String        @id @default(uuid())
   branchId     String
-  branch       Branch          @relation(fields: [branchId], references: [id])
+  branch       Branch        @relation(fields: [branchId], references: [id])
   clientId     String?
-  client       Client?         @relation(fields: [clientId], references: [id])
+  client       Client?       @relation(fields: [clientId], references: [id])
   name         String
   phone        String
   email        String?
@@ -296,13 +466,13 @@ model Enquiry {
   enquiryFor   String
   type         EnquiryType
   source       LeadSource
-  status       EnquiryStatus   @default(PENDING)
-  followUpOn   DateTime?       @db.Date
+  status       EnquiryStatus @default(PENDING)
+  followUpOn   DateTime?     @db.Date
   assignedToId String?
-  assignedTo   User?           @relation("EnquiryAssignee", fields: [assignedToId], references: [id])
+  assignedTo   User?         @relation("EnquiryAssignee", fields: [assignedToId], references: [id])
   notes        String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   responses EnquiryResponse[]
 
@@ -317,4 +487,618 @@ model EnquiryResponse {
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
+}
+
+// ─── M3 Appointments ──────────────────────────────────────────────────────────
+
+model Appointment {
+  id           String            @id @default(uuid())
+  branchId     String
+  clientId     String
+  client       Client            @relation(fields: [clientId], references: [id])
+  date         DateTime          @db.Date
+  /// Earliest item start / latest item end, kept in sync with the items.
+  startTime    String
+  endTime      String
+  status       AppointmentStatus @default(BOOKED)
+  source       AppointmentSource @default(PHONE)
+  notes        String?
+  cancelReason String?
+  billId       String?           @unique
+  bill         Bill?             @relation(fields: [billId], references: [id])
+  createdById  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  items    AppointmentItem[]
+  payments Payment[]
+
+  @@index([branchId, date])
+  @@index([clientId])
+}
+
+model AppointmentItem {
+  id            String      @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id])
+  staffId       String?
+  staff         Staff?      @relation(fields: [staffId], references: [id])
+  startTime     String
+  endTime       String
+  pricePaise    Int
+
+  @@index([staffId])
+}
+
+// ─── M4 Billing ───────────────────────────────────────────────────────────────
+
+model BillCounter {
+  branchId String @id
+  next     Int    @default(1)
+}
+
+model Bill {
+  id                  String     @id @default(uuid())
+  branchId            String
+  /// "<prefix>-000123", sequential per branch.
+  number              String
+  clientId            String
+  client              Client     @relation(fields: [clientId], references: [id])
+  billedAt            DateTime   @default(now())
+  status              BillStatus
+  /// Sum of qty × unit price before any discount.
+  subtotalPaise       Int
+  /// Line discounts + coupon + manual + points discounts.
+  discountPaise       Int
+  taxPaise            Int
+  roundOffPaise       Int        @default(0)
+  totalPaise          Int
+  paidPaise           Int
+  duePaise            Int
+  couponId            String?
+  coupon              Coupon?    @relation(fields: [couponId], references: [id])
+  couponDiscountPaise Int        @default(0)
+  manualDiscountPaise Int        @default(0)
+  pointsRedeemed      Int        @default(0)
+  pointsDiscountPaise Int        @default(0)
+  pointsEarned        Int        @default(0)
+  notes               String?
+  /// Secret for the public feedback link sent after the visit.
+  feedbackToken       String     @unique @default(uuid())
+  voidedAt            DateTime?
+  voidReason          String?
+  createdById         String
+  createdBy           User       @relation("BillCreator", fields: [createdById], references: [id])
+  createdAt           DateTime   @default(now())
+
+  appointment       Appointment?
+  items             BillItem[]
+  payments          Payment[]
+  walletEntries     WalletEntry[]
+  pointsEntries     PointsEntry[]
+  clientPackages    ClientPackage[]
+  clientMemberships ClientMembership[]
+  giftCardsIssued   GiftCard[]
+  feedback          Feedback?
+
+  @@unique([branchId, number])
+  @@index([branchId, billedAt])
+  @@index([clientId])
+}
+
+model BillItem {
+  id                  String             @id @default(uuid())
+  billId              String
+  bill                Bill               @relation(fields: [billId], references: [id], onDelete: Cascade)
+  kind                BillItemKind
+  /// Snapshot of the item name at billing time.
+  name                String
+  serviceId           String?
+  service             Service?           @relation(fields: [serviceId], references: [id])
+  productId           String?
+  product             Product?           @relation(fields: [productId], references: [id])
+  packageId           String?
+  package             Package?           @relation(fields: [packageId], references: [id])
+  membershipPlanId    String?
+  membershipPlan      MembershipPlan?    @relation(fields: [membershipPlanId], references: [id])
+  /// Set when a service is redeemed from a package the client owns (line price 0).
+  clientPackageItemId String?
+  clientPackageItem   ClientPackageItem? @relation(fields: [clientPackageItemId], references: [id])
+  staffId             String?
+  staff               Staff?             @relation(fields: [staffId], references: [id])
+  qty                 Int
+  unitPricePaise      Int
+  /// Line discount plus its share of bill-level discounts.
+  discountPaise       Int
+  taxRateId           String?
+  taxPct              Decimal            @default(0) @db.Decimal(5, 2)
+  taxPaise            Int
+  /// Taxable amount + tax.
+  totalPaise          Int
+  commissionPaise     Int                @default(0)
+
+  @@index([billId])
+  @@index([staffId])
+  @@index([serviceId])
+  @@index([productId])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  branchId      String
+  clientId      String?
+  billId        String?
+  bill          Bill?         @relation(fields: [billId], references: [id])
+  appointmentId String?
+  appointment   Appointment?  @relation(fields: [appointmentId], references: [id])
+  kind          PaymentKind
+  method        PaymentMethod
+  amountPaise   Int
+  /// Transaction id, cheque number or gift card code.
+  reference     String?
+  giftCardId    String?
+  receivedAt    DateTime      @default(now())
+  createdById   String?
+
+  @@index([branchId, receivedAt])
+  @@index([billId])
+  @@index([clientId])
+}
+
+/// Prepaid client balance; the balance is the sum of `amountPaise` (credits positive, spends negative).
+model WalletEntry {
+  id          String       @id @default(uuid())
+  clientId    String
+  client      Client       @relation(fields: [clientId], references: [id])
+  branchId    String
+  amountPaise Int
+  reason      WalletReason
+  billId      String?
+  bill        Bill?        @relation(fields: [billId], references: [id])
+  paymentId   String?
+  note        String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+
+  @@index([clientId])
+}
+
+/// Reward points ledger; the balance is the sum of `points`.
+model PointsEntry {
+  id          String       @id @default(uuid())
+  clientId    String
+  client      Client       @relation(fields: [clientId], references: [id])
+  branchId    String
+  points      Int
+  reason      PointsReason
+  billId      String?
+  bill        Bill?        @relation(fields: [billId], references: [id])
+  note        String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+
+  @@index([clientId])
+}
+
+model Coupon {
+  id                  String       @id @default(uuid())
+  branchId            String
+  code                String
+  description         String?
+  discountType        DiscountType
+  /// PERCENT coupons use `discountPct`, FLAT coupons use `discountPaise`.
+  discountPct         Decimal?     @db.Decimal(5, 2)
+  discountPaise       Int?
+  minBillPaise        Int          @default(0)
+  maxDiscountPaise    Int?
+  validFrom           DateTime?    @db.Date
+  validTo             DateTime?    @db.Date
+  usageLimitPerClient Int?
+  totalUsageLimit     Int?
+  isActive            Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+
+  bills Bill[]
+
+  @@unique([branchId, code])
+}
+
+model MembershipPlan {
+  id                 String   @id @default(uuid())
+  branchId           String
+  name               String
+  description        String?
+  pricePaise         Int
+  durationDays       Int
+  /// Members pay each service's member price.
+  useMemberPrices    Boolean  @default(true)
+  productDiscountPct Decimal  @default(0) @db.Decimal(5, 2)
+  packageDiscountPct Decimal  @default(0) @db.Decimal(5, 2)
+  /// Reward points earned on bills are multiplied by this (1 = no boost).
+  pointsMultiplier   Int      @default(1)
+  /// Points granted when the membership is bought.
+  rewardPoints       Int      @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  clientMemberships ClientMembership[]
+  billItems         BillItem[]
+
+  @@unique([branchId, name])
+}
+
+model ClientMembership {
+  id          String         @id @default(uuid())
+  clientId    String
+  client      Client         @relation(fields: [clientId], references: [id])
+  planId      String
+  plan        MembershipPlan @relation(fields: [planId], references: [id])
+  branchId    String
+  startsOn    DateTime       @db.Date
+  endsOn      DateTime       @db.Date
+  billId      String?
+  bill        Bill?          @relation(fields: [billId], references: [id])
+  cancelledAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([clientId, endsOn])
+}
+
+model Package {
+  id           String   @id @default(uuid())
+  branchId     String
+  name         String
+  description  String?
+  pricePaise   Int
+  validityDays Int
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  items          PackageItem[]
+  clientPackages ClientPackage[]
+  billItems      BillItem[]
+
+  @@unique([branchId, name])
+}
+
+model PackageItem {
+  id        String  @id @default(uuid())
+  packageId String
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+  qty       Int
+
+  @@unique([packageId, serviceId])
+}
+
+/// A package a client bought; `items` track how many of each service remain.
+model ClientPackage {
+  id          String    @id @default(uuid())
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id])
+  packageId   String
+  package     Package   @relation(fields: [packageId], references: [id])
+  branchId    String
+  purchasedOn DateTime  @db.Date
+  expiresOn   DateTime  @db.Date
+  billId      String?
+  bill        Bill?     @relation(fields: [billId], references: [id])
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  items ClientPackageItem[]
+
+  @@index([clientId, expiresOn])
+}
+
+model ClientPackageItem {
+  id              String        @id @default(uuid())
+  clientPackageId String
+  clientPackage   ClientPackage @relation(fields: [clientPackageId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id])
+  totalQty        Int
+  usedQty         Int           @default(0)
+
+  billItems BillItem[]
+}
+
+/// Gift cards work in every branch of the organisation; `balancePaise` is decremented when used as payment.
+model GiftCard {
+  id             String    @id @default(uuid())
+  organizationId String
+  code           String    @unique
+  initialPaise   Int
+  balancePaise   Int
+  clientId       String?
+  issuedBillId   String?
+  issuedBill     Bill?     @relation(fields: [issuedBillId], references: [id])
+  expiresOn      DateTime? @db.Date
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+}
+
+// ─── M5 Inventory ─────────────────────────────────────────────────────────────
+
+model Product {
+  id             String      @id @default(uuid())
+  branchId       String
+  name           String
+  brand          String?
+  barcode        String?
+  unit           ProductUnit @default(PCS)
+  volume         Decimal?    @db.Decimal(10, 2)
+  mrpPaise       Int
+  salePricePaise Int
+  costPricePaise Int         @default(0)
+  rewardPoints   Int         @default(0)
+  /// Alert when stock on hand falls to or below this.
+  lowStockAt     Int         @default(5)
+  /// false = consumable used in services only (not sold).
+  isRetail       Boolean     @default(true)
+  taxRateId      String?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  billItems      BillItem[]
+  purchaseItems  PurchaseItem[]
+  stockMovements StockMovement[]
+
+  @@unique([branchId, name])
+  @@index([branchId, barcode])
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  phone     String?
+  email     String?
+  gstin     String?
+  address   String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  purchases Purchase[]
+
+  @@unique([branchId, name])
+}
+
+model Purchase {
+  id            String   @id @default(uuid())
+  branchId      String
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  invoiceNo     String?
+  purchasedOn   DateTime @db.Date
+  subtotalPaise Int
+  discountPaise Int      @default(0)
+  taxPaise      Int      @default(0)
+  shippingPaise Int      @default(0)
+  totalPaise    Int
+  paidPaise     Int      @default(0)
+  notes         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  items PurchaseItem[]
+
+  @@index([branchId, purchasedOn])
+}
+
+model PurchaseItem {
+  id             String    @id @default(uuid())
+  purchaseId     String
+  purchase       Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id])
+  qty            Int
+  costPricePaise Int
+  mrpPaise       Int
+  lotNo          String?
+  expiresOn      DateTime? @db.Date
+}
+
+/// Stock ledger; stock on hand for a product is the sum of `qtyChange`.
+model StockMovement {
+  id             String      @id @default(uuid())
+  branchId       String
+  productId      String
+  product        Product     @relation(fields: [productId], references: [id])
+  qtyChange      Int
+  reason         StockReason
+  purchaseItemId String?
+  billItemId     String?
+  staffId        String?
+  /// Pairs the OUT and IN movements of a branch-to-branch transfer.
+  transferId     String?
+  note           String?
+  createdById    String?
+  createdAt      DateTime    @default(now())
+
+  @@index([branchId, productId])
+}
+
+// ─── M6 Team & expenses ───────────────────────────────────────────────────────
+
+model Attendance {
+  id       String           @id @default(uuid())
+  branchId String
+  staffId  String
+  staff    Staff            @relation(fields: [staffId], references: [id])
+  date     DateTime         @db.Date
+  status   AttendanceStatus
+  checkIn  String?
+  checkOut String?
+  note     String?
+
+  @@unique([staffId, date])
+  @@index([branchId, date])
+}
+
+model SalaryEntry {
+  id          String        @id @default(uuid())
+  branchId    String
+  staffId     String
+  staff       Staff         @relation(fields: [staffId], references: [id])
+  kind        SalaryKind
+  /// Month the entry belongs to, "YYYY-MM".
+  forMonth    String
+  amountPaise Int
+  method      PaymentMethod
+  paidOn      DateTime      @db.Date
+  note        String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@index([branchId, forMonth])
+}
+
+model Expense {
+  id          String        @id @default(uuid())
+  branchId    String
+  spentOn     DateTime      @db.Date
+  category    String
+  amountPaise Int
+  method      PaymentMethod
+  paidTo      String?
+  description String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@index([branchId, spentOn])
+}
+
+// ─── M7 Messaging ─────────────────────────────────────────────────────────────
+
+/// Provider choice and credentials per branch. Secrets live in the *Config JSON and are never returned in full by the API.
+model MessagingSettings {
+  branchId         String         @id
+  defaultChannel   MessageChannel @default(WHATSAPP)
+  smsProvider      String         @default("CONSOLE")
+  smsConfig        Json?
+  whatsappProvider String         @default("CONSOLE")
+  whatsappConfig   Json?
+  emailProvider    String         @default("CONSOLE")
+  emailConfig      Json?
+  updatedAt        DateTime       @updatedAt
+}
+
+model MessageTemplate {
+  id        String         @id @default(uuid())
+  branchId  String
+  name      String
+  kind      MessageKind
+  channel   MessageChannel
+  /// Text with {placeholders}, e.g. "Hi {firstName}, see you at {time}".
+  body      String
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([branchId, name])
+  @@index([branchId, kind])
+}
+
+model MessageLog {
+  id           String         @id @default(uuid())
+  branchId     String
+  clientId     String?
+  kind         MessageKind
+  channel      MessageChannel
+  recipient    String
+  body         String
+  status       MessageStatus  @default(QUEUED)
+  provider     String?
+  providerRef  String?
+  error        String?
+  attempts     Int            @default(0)
+  scheduledFor DateTime       @default(now())
+  sentAt       DateTime?
+  createdById  String?
+  createdAt    DateTime       @default(now())
+
+  @@index([status, scheduledFor])
+  @@index([branchId, createdAt])
+}
+
+/// "Remind clients N days after service X" (e.g. hair colour touch-up after 30 days).
+model ServiceReminderRule {
+  id        String   @id @default(uuid())
+  branchId  String
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+  afterDays Int
+  body      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([branchId, serviceId])
+}
+
+/// Makes daily jobs idempotent: one row per job, branch and business date.
+model JobRun {
+  id        String   @id @default(uuid())
+  name      String
+  branchId  String
+  runDate   String
+  createdAt DateTime @default(now())
+
+  @@unique([name, branchId, runDate])
+}
+
+// ─── M9 Website ───────────────────────────────────────────────────────────────
+
+model Offer {
+  id          String    @id @default(uuid())
+  branchId    String
+  title       String
+  description String?
+  imageUrl    String?
+  validTo     DateTime? @db.Date
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([branchId])
+}
+
+model GalleryPhoto {
+  id        String   @id @default(uuid())
+  branchId  String
+  imageUrl  String
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([branchId])
+}
+
+model Feedback {
+  id             String   @id @default(uuid())
+  branchId       String
+  clientId       String?
+  client         Client?  @relation(fields: [clientId], references: [id])
+  billId         String?  @unique
+  bill           Bill?    @relation(fields: [billId], references: [id])
+  name           String
+  phone          String?
+  /// 1–5 stars.
+  rating         Int
+  serviceRating  Int?
+  staffRating    Int?
+  ambienceRating Int?
+  comment        String?
+  /// Only approved feedback is shown on the website.
+  isApproved     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([branchId, createdAt])
 }

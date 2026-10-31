@@ -5,6 +5,7 @@ import { BRANCH_HEADER } from '@salon/shared';
 import ExcelJS from 'exceljs';
 import { CLIENT_IMPORT_COLUMNS } from '../src/services/clientImport.js';
 import { buildTemplate } from '../src/services/serviceImport.js';
+import { resetDatabase } from './helpers.js';
 
 const PASSWORD = 'Passw0rd!';
 
@@ -242,9 +243,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('API integration', () => {
 });
 
 async function seedFixtures(prisma) {
-  await prisma.$executeRawUnsafe(
-    'TRUNCATE "EnquiryResponse", "Enquiry", "ClientFollowUp", "Client", "Holiday", "BranchSetting", "TaxRate", "Service", "ServiceCategory", "Staff", "UserBranch", "User", "Branch", "Organization" CASCADE',
-  );
+  await resetDatabase(prisma);
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const orgA = await prisma.organization.create({ data: { name: 'Org A' } });
   const orgB = await prisma.organization.create({ data: { name: 'Org B' } });

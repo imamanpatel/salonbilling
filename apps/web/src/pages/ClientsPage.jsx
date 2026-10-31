@@ -10,6 +10,7 @@ import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { formatDate, formatDayMonth, GENDER_LABELS, LEAD_SOURCE_LABELS } from '../lib/format.js';
 import { useDebounced, useTeam } from '../lib/hooks.js';
+import { clientSections } from '../modules.js';
 
 const SEGMENTS = [
   { value: '', label: 'All clients', count: 'total' },
@@ -178,7 +179,12 @@ export default function ClientsPage() {
 
       {editing && <ClientFormModal client={editing} onClose={() => setEditing(null)} />}
       {viewingId && !editing && (
-        <ClientProfileModal clientId={viewingId} onClose={() => setViewing(null)} onEdit={(client) => setEditing(client)} />
+        <ClientProfileModal
+          clientId={viewingId}
+          sections={clientSections}
+          onClose={() => setViewing(null)}
+          onEdit={(client) => setEditing(client)}
+        />
       )}
       {importing && (
         <ImportModal

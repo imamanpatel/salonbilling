@@ -133,8 +133,11 @@ function Detail({ label, children }) {
   );
 }
 
-/** Client 360°: profile, follow-ups and enquiries. Visits and bills join this view with Billing. */
-export function ClientProfileModal({ clientId, onClose, onEdit }) {
+/**
+ * Client 360°: profile, follow-ups and enquiries, plus `sections` contributed by feature modules
+ * (bills, wallet, packages, appointments...). Each section receives `{ client }`.
+ */
+export function ClientProfileModal({ clientId, onClose, onEdit, sections = [] }) {
   const { branchId } = useAuth();
   const queryClient = useQueryClient();
   const client = useQuery({ queryKey: [branchId, 'client', clientId], queryFn: () => api(`/clients/${clientId}`) });
@@ -263,9 +266,9 @@ export function ClientProfileModal({ clientId, onClose, onEdit }) {
             </section>
           )}
 
-          <p className="rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-500">
-            Visits, bills, wallet balance, packages and reward points will appear here once Billing (M4) is live.
-          </p>
+          {sections.map((Section, index) => (
+            <Section key={index} client={c} />
+          ))}
         </div>
       )}
     </Modal>

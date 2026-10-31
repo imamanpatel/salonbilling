@@ -2,35 +2,13 @@ import { z } from 'zod';
 import {
   ENQUIRY_STATUSES, ENQUIRY_TYPES, GENDERS, LEAD_SOURCES, ROLES, SERVICE_GENDERS, STAFF_KINDS, TAX_APPLIES_TO,
 } from './constants.js';
+import {
+  blankToNull, id, isoDate, optionalDate, optionalEmail, optionalId, optionalPhone, optionalText, optionalTime, paise, password,
+  percent, phone, required, time,
+} from './primitives.js';
 
 // Request schemas shared by the API (authoritative validation) and the web forms (instant feedback).
 // Money fields are integer paise; dates are "YYYY-MM-DD"; times are "HH:mm".
-
-const blankToNull = (v) => (v === '' || v === undefined ? null : v);
-
-const required = (label, max = 120) => z.string().trim().min(1, `${label} is required`).max(max);
-const optionalText = (max = 255) => z.string().trim().max(max).nullish().transform((v) => v || null);
-
-/** "+91 98765-43210" -> "+919876543210": drop spaces, dashes, dots and brackets. */
-export const normalizePhone = (value) => (typeof value === 'string' ? value.replace(/[\s().-]/g, '') : value);
-
-const phone = z.preprocess(normalizePhone, z.string().regex(/^\+?\d{10,15}$/, 'Enter a valid phone number'));
-const optionalPhone = z.preprocess((v) => blankToNull(normalizePhone(v)), phone.nullable());
-const optionalId = z.preprocess(blankToNull, z.string().uuid().nullable());
-const optionalEmail = z.preprocess(blankToNull, z.string().trim().email('Enter a valid email').nullable());
-
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
-const optionalDate = z.preprocess(blankToNull, isoDate.nullable());
-const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm');
-const optionalTime = z.preprocess(blankToNull, time.nullable());
-
-const paise = z
-  .number({ error: (issue) => (issue.input == null ? 'Enter an amount' : 'Enter a valid amount') })
-  .int('Enter a valid amount')
-  .min(0, 'Cannot be negative');
-const percent = z.coerce.number().min(0, 'Cannot be negative').max(100, 'Cannot exceed 100');
-const password = z.string().min(8, 'Use at least 8 characters').max(72, 'Use at most 72 characters');
-const id = z.string().uuid();
 
 export const statusSchema = z.object({ isActive: z.boolean() });
 
@@ -58,6 +36,13 @@ export const branchSchema = z.object({
   openTime: time,
   closeTime: time,
   isActive: z.boolean().default(true),
+  /** Public booking/feedback URL segment, e.g. "andheri". Omit to leave unchanged. */
+  slug: z
+    .preprocess(
+      (v) => (typeof v === 'string' ? blankToNull(v.trim().toLowerCase()) : v),
+      z.string().max(40).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Lowercase letters, numbers and dashes').nullable(),
+    )
+    .optional(),
 });
 
 const userBase = z.object({
@@ -143,6 +128,15 @@ export const settingsSchema = z.object({
   redeemPoints: z.coerce.number().int().min(1, 'At least 1 point'),
   redeemValuePaise: paise,
   maxRedeemPoints: z.coerce.number().int().min(0, 'Cannot be negative'),
+  // Billing & website preferences (M4/M9). Optional so older clients can keep sending only the fields above.
+  defaultServiceTaxId: optionalId.optional(),
+  defaultProductTaxId: optionalId.optional(),
+  billPrefix: z
+    .preprocess(blankToNull, z.string().trim().toUpperCase().regex(/^[A-Z0-9]{1,8}$/, 'Up to 8 letters/digits').nullable())
+    .optional(),
+  roundOffBills: z.boolean().optional(),
+  onlineBooking: z.boolean().optional(),
+  feedbackRequests: z.boolean().optional(),
 });
 
 export const holidaySchema = z.object({

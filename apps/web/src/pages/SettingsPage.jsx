@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { CalendarOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { holidaySchema, paiseToRupees, settingsSchema, TAX_APPLIES_TO, taxSchema } from '@salon/shared';
@@ -26,6 +27,7 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description={`Taxes, loyalty points, reminders and holidays for ${branch?.name ?? 'this branch'}.`} />
       <div className="space-y-6">
         <TaxesCard />
+        <BillingCard />
         <PreferencesCard />
         <HolidaysCard />
       </div>
@@ -120,6 +122,82 @@ function TaxFormModal({ tax, onClose }) {
   );
 }
 
+function BillingCard() {
+  const { branchId } = useAuth();
+  const settings = useQuery({ queryKey: [branchId, 'settings'], queryFn: () => api('/settings') });
+  const taxes = useQuery({ queryKey: [branchId, 'taxes'], queryFn: () => api('/settings/taxes') });
+
+  return (
+    <Card>
+      <CardHeader title="Billing" description="Defaults for new bills." />
+      {settings.isPending || taxes.isPending ? (
+        <div className="p-8">
+          <Spinner className="mx-auto" />
+        </div>
+      ) : settings.error || taxes.error ? (
+        <p className="p-5 text-sm text-rose-600">{(settings.error ?? taxes.error).message}</p>
+      ) : (
+        <BillingForm key={settings.dataUpdatedAt} settings={settings.data} taxes={taxes.data} />
+      )}
+    </Card>
+  );
+}
+
+function BillingForm({ settings, taxes }) {
+  const { branchId, branch } = useAuth();
+  const queryClient = useQueryClient();
+
+  // PUT /settings replaces every field, so the rest of the current settings are sent along unchanged.
+  const form = useApiForm({
+    schema: settingsSchema,
+    defaultValues: {
+      defaultServiceTaxId: settings.defaultServiceTaxId ?? '',
+      defaultProductTaxId: settings.defaultProductTaxId ?? '',
+      billPrefix: settings.billPrefix ?? '',
+      roundOffBills: settings.roundOffBills ?? true,
+    },
+    toPayload: (values) => ({ ...settings, ...values }),
+    onSubmit: async (payload) => {
+      await api('/settings', { method: 'PUT', body: payload });
+      toast.success('Billing settings saved');
+      queryClient.invalidateQueries({ queryKey: [branchId, 'settings'] });
+      queryClient.invalidateQueries({ queryKey: [branchId, 'bill-catalogue'] });
+    },
+  });
+  const { register, watch, formState: { errors, isSubmitting, isDirty } } = form;
+  const prefix = watch('billPrefix');
+  const usable = (category) => taxes.filter((t) => t.isActive && (t.appliesTo === 'ALL' || t.appliesTo === category));
+  const fallbackPrefix = (branch?.name ?? '').replace(/[^a-z0-9]/gi, '').slice(0, 4).toUpperCase() || 'BILL';
+
+  return (
+    <form onSubmit={form.submit} noValidate className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
+      <Field label="Default tax on services" hint="Also used for packages and memberships" error={errors.defaultServiceTaxId?.message}>
+        <Select {...register('defaultServiceTaxId')}>
+          <option value="">No tax</option>
+          {usable('SERVICE').map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Default tax on products" hint="Unless the product has its own" error={errors.defaultProductTaxId?.message}>
+        <Select {...register('defaultProductTaxId')}>
+          <option value="">No tax</option>
+          {usable('PRODUCT').map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Bill number prefix" hint={`Bills look like ${(prefix || fallbackPrefix).toUpperCase()}-000123`} error={errors.billPrefix?.message}>
+        <Input maxLength={8} className="uppercase" invalid={!!errors.billPrefix} {...register('billPrefix')} />
+      </Field>
+      <Checkbox className="sm:mt-7" label="Round off totals" description="Round bill totals to the nearest rupee." {...register('roundOffBills')} />
+      <div className="sm:col-span-2 lg:col-span-4">
+        <Button type="submit" loading={isSubmitting} disabled={!isDirty}>Save billing settings</Button>
+      </div>
+    </form>
+  );
+}
+
 function PreferencesCard() {
   const { branchId } = useAuth();
   const settings = useQuery({ queryKey: [branchId, 'settings'], queryFn: () => api('/settings') });
@@ -182,7 +260,10 @@ function PreferencesForm({ settings }) {
         {REMINDERS.map(([name, label, description]) => (
           <Checkbox key={name} label={label} description={description} {...register(name)} />
         ))}
-        <p className="text-xs text-slate-500">Messages start going out once SMS/WhatsApp is connected (milestone M7).</p>
+        <p className="text-xs text-slate-500">
+          Messages go out through the provider set up in{' '}
+          <Link to="/settings/messaging" className="font-medium text-brand-700 hover:underline">Messaging settings</Link>.
+        </p>
       </fieldset>
 
       <div className="lg:col-span-2">

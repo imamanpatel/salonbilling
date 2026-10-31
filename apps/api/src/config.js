@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable ${name} (see apps/api/.env.example)`);
@@ -15,4 +17,8 @@ export const config = {
   sessionHours: Number(process.env.SESSION_HOURS ?? 12),
   /** "Today" for follow-ups, birthdays and reports is computed in this zone, not the server's. */
   timezone: process.env.BUSINESS_TIMEZONE ?? 'Asia/Kolkata',
+  /** Where uploaded images are stored; served at /uploads. */
+  uploadsDir: process.env.UPLOADS_DIR ?? fileURLToPath(new URL('../uploads/', import.meta.url)),
+  /** Public address of the web app, used in links sent to clients (feedback, booking). */
+  appUrl: (process.env.APP_URL ?? 'http://localhost:5173').replace(/\/$/, ''),
 };

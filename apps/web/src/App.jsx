@@ -3,6 +3,7 @@ import { ROLES } from '@salon/shared';
 import AppLayout from './components/AppLayout.jsx';
 import { Spinner } from './components/ui.jsx';
 import { useAuth } from './lib/auth.jsx';
+import { moduleRoutes } from './modules.js';
 import AccountPage from './pages/AccountPage.jsx';
 import BranchesPage from './pages/BranchesPage.jsx';
 import ClientsPage from './pages/ClientsPage.jsx';
@@ -17,13 +18,20 @@ import TodayPage from './pages/TodayPage.jsx';
 import UsersPage from './pages/UsersPage.jsx';
 
 const MANAGERS = [ROLES.SUPERADMIN, ROLES.ADMIN];
+const routesFor = (layout) => moduleRoutes.filter((r) => (r.layout ?? 'app') === layout);
 
 function RequireRole({ roles, children }) {
   const { user } = useAuth();
-  return roles.includes(user.role) ? children : <NotFoundPage />;
+  return !roles || roles.includes(user.role) ? children : <NotFoundPage />;
 }
 
-export default function App() {
+function moduleRouteElements(layout) {
+  return routesFor(layout).map((r) => (
+    <Route key={r.path} path={r.path} element={<RequireRole roles={r.roles}>{r.element}</RequireRole>} />
+  ));
+}
+
+function SignedInApp() {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -37,6 +45,7 @@ export default function App() {
 
   return (
     <Routes>
+      {moduleRouteElements('bare')}
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="today" element={<TodayPage />} />
@@ -48,8 +57,21 @@ export default function App() {
         <Route path="users" element={<RequireRole roles={MANAGERS}><UsersPage /></RequireRole>} />
         <Route path="branches" element={<RequireRole roles={[ROLES.SUPERADMIN]}><BranchesPage /></RequireRole>} />
         <Route path="account" element={<AccountPage />} />
+        {moduleRouteElements('app')}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      {/* Public pages (online booking, feedback) never ask for sign-in. */}
+      {routesFor('public').map((r) => (
+        <Route key={r.path} path={r.path} element={r.element} />
+      ))}
+      <Route path="*" element={<SignedInApp />} />
     </Routes>
   );
 }

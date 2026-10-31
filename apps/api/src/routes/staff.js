@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { ROLES, STAFF_KINDS, staffSchema, statusSchema } from '@salon/shared';
+import { staffTransferSchema } from '@salon/shared/hr';
+import { config } from '../config.js';
 import { prisma } from '../db.js';
-import { fromIsoDate, toIsoDate } from '../lib/dates.js';
+import { fromIsoDate, todayIso, toIsoDate } from '../lib/dates.js';
+import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { findInBranch, queryString, statusWhere } from '../lib/http.js';
 import { requireRole } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
@@ -50,6 +53,37 @@ router.put('/:id', canWrite, validateBody(staffSchema), async (req, res) => {
 router.patch('/:id/status', canWrite, validateBody(statusSchema), async (req, res) => {
   await findInBranch(prisma.staff, req.params.id, req.branchId, 'Staff member');
   const row = await prisma.staff.update({ where: { id: req.params.id }, data: { isActive: req.body.isActive } });
+  res.json({ data: toDto(row) });
+});
+
+// Moves a staff member to another branch. Attendance, salary and bill history keep their old branchId.
+router.post('/:id/transfer', canWrite, validateBody(staffTransferSchema), async (req, res) => {
+  const member = await findInBranch(prisma.staff, req.params.id, req.branchId, 'Staff member');
+  const { toBranchId } = req.body;
+  if (toBranchId === req.branchId) throw badRequest('Pick a different branch', { toBranchId: `${member.name} already works here` });
+
+  const target = await prisma.branch.findFirst({ where: { id: toBranchId, organizationId: req.branch.organizationId, isActive: true } });
+  if (!target) throw notFound('Branch');
+  if (req.user.role !== ROLES.SUPERADMIN && !req.user.branches.some((b) => b.branchId === toBranchId)) {
+    throw forbidden('You do not have access to that branch');
+  }
+
+  const upcoming = await prisma.appointment.count({
+    where: {
+      date: { gte: fromIsoDate(todayIso(config.timezone)) },
+      status: { in: ['REQUESTED', 'BOOKED', 'CHECKED_IN'] },
+      items: { some: { staffId: member.id } },
+    },
+  });
+  if (upcoming) {
+    const noun = upcoming === 1 ? 'appointment' : 'appointments';
+    throw conflict(`${member.name} has ${upcoming} upcoming ${noun}. Reassign or cancel them before the transfer.`);
+  }
+
+  const clash = await prisma.staff.findFirst({ where: { branchId: target.id, phone: member.phone } });
+  if (clash) throw conflict(`${target.name} already has a staff member with phone ${member.phone} (${clash.name})`);
+
+  const row = await prisma.staff.update({ where: { id: member.id }, data: { branchId: target.id } });
   res.json({ data: toDto(row) });
 });
 

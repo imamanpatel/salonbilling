@@ -1,5 +1,9 @@
 node_modules/
 dist/
+# Built-in local database files (npm run db:local)
+.data/
+# Uploaded images
+apps/api/uploads/
 coverage/
 *.log
 

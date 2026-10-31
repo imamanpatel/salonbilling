@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Search, UserCog } from 'lucide-react';
+import { ArrowRightLeft, Pencil, Plus, Receipt, Search, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { DEPARTMENTS, formatINR, GENDERS, paiseToRupees, STAFF_KINDS, staffSchema } from '@salon/shared';
 import { Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge, Tabs, Textarea } from '../components/ui.jsx';
@@ -9,6 +9,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { formatDate, GENDER_LABELS, moneyInput, todayIso } from '../lib/format.js';
 import { useDebounced } from '../lib/hooks.js';
 import { useApiForm } from '../lib/useApiForm.js';
+import { CommissionModal, TransferModal } from '../modules/team/StaffActions.jsx';
 
 const KIND_TABS = [
   { value: STAFF_KINDS.SERVICE_PROVIDER, label: 'Service providers' },
@@ -22,6 +23,8 @@ export default function StaffPage() {
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
+  const [transferring, setTransferring] = useState(null);
+  const [viewingCommission, setViewingCommission] = useState(null);
   const q = useDebounced(search.trim());
   const isProvider = kind === STAFF_KINDS.SERVICE_PROVIDER;
 
@@ -71,6 +74,16 @@ export default function StaffPage() {
           <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
             <Pencil className="size-3.5" /> Edit
           </Button>
+          {isProvider && (
+            <Button variant="ghost" size="sm" onClick={() => setViewingCommission(s)}>
+              <Receipt className="size-3.5" /> Commission
+            </Button>
+          )}
+          {s.isActive && (
+            <Button variant="ghost" size="sm" onClick={() => setTransferring(s)}>
+              <ArrowRightLeft className="size-3.5" /> Transfer
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => toggleStatus.mutate(s)} disabled={toggleStatus.isPending}>
             {s.isActive ? 'Deactivate' : 'Activate'}
           </Button>
@@ -124,6 +137,8 @@ export default function StaffPage() {
       </Card>
 
       {editing && <StaffFormModal member={editing} kind={kind} onClose={() => setEditing(null)} />}
+      {transferring && <TransferModal member={transferring} onClose={() => setTransferring(null)} />}
+      {viewingCommission && <CommissionModal member={viewingCommission} onClose={() => setViewingCommission(null)} />}
     </>
   );
 }

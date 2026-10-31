@@ -1,102 +1,63 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import {
-  BadgePercent, BarChart3, Boxes, Building2, CalendarCheck, CalendarClock, Crown, KeyRound, LayoutDashboard, LogOut,
-  ListChecks, Menu, Package, Receipt, Scissors, Settings, ShieldCheck, Star, UserCog, UserPlus, Users, Wallet, X,
+  Building2, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, Scissors, Settings, ShieldCheck, UserCog, UserPlus, Users, X,
 } from 'lucide-react';
 import { ROLES } from '@salon/shared';
 import { useAuth } from '../lib/auth.jsx';
 import { ROLE_LABELS } from '../lib/format.js';
+import { moduleNav } from '../modules.js';
 import { Button, cx, Select } from './ui.jsx';
 
 const MANAGERS = [ROLES.SUPERADMIN, ROLES.ADMIN];
 
-// Items without `to` are planned modules; `soon` names the milestone that delivers them.
-const NAV = [
-  { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }] },
-  {
-    title: 'Front desk',
-    items: [
-      { to: '/today', label: 'Today', icon: ListChecks },
-      { label: 'Appointments', icon: CalendarClock, soon: 'M3' },
-      { label: 'Billing', icon: Receipt, soon: 'M4' },
-      { to: '/clients', label: 'Clients', icon: Users },
-      { to: '/enquiries', label: 'Enquiries', icon: UserPlus },
-      { label: 'Feedback', icon: Star, soon: 'M9' },
-    ],
-  },
-  {
-    title: 'Catalogue',
-    items: [
-      { to: '/services', label: 'Services', icon: Scissors },
-      { label: 'Packages', icon: Package, soon: 'M4' },
-      { label: 'Memberships', icon: Crown, soon: 'M4' },
-      { label: 'Coupons', icon: BadgePercent, soon: 'M4' },
-    ],
-  },
-  {
-    title: 'Team',
-    items: [
-      { to: '/staff', label: 'Staff', icon: UserCog },
-      { label: 'Attendance', icon: CalendarCheck, soon: 'M6' },
-      { label: 'Salaries', icon: Wallet, soon: 'M6' },
-    ],
-  },
-  {
-    title: 'Business',
-    items: [
-      { label: 'Inventory', icon: Boxes, soon: 'M5' },
-      { label: 'Reports', icon: BarChart3, soon: 'M8' },
-    ],
-  },
-  {
-    title: 'Admin',
-    roles: MANAGERS,
-    items: [
-      { to: '/settings', label: 'Settings', icon: Settings },
-      { to: '/users', label: 'Users', icon: ShieldCheck },
-      { to: '/branches', label: 'Branches', icon: Building2, roles: [ROLES.SUPERADMIN] },
-    ],
-  },
+// Sidebar groups in display order. Feature modules add items to these groups (see src/modules.js).
+const GROUPS = ['', 'Front desk', 'Catalogue', 'Inventory', 'Team', 'Business', 'Admin'];
+
+const CORE_NAV = [
+  { group: '', to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, order: 0 },
+  { group: 'Front desk', to: '/today', label: 'Today', icon: ListChecks, order: 10 },
+  { group: 'Front desk', to: '/clients', label: 'Clients', icon: Users, order: 40 },
+  { group: 'Front desk', to: '/enquiries', label: 'Enquiries', icon: UserPlus, order: 50 },
+  { group: 'Catalogue', to: '/services', label: 'Services', icon: Scissors, order: 10 },
+  { group: 'Team', to: '/staff', label: 'Staff', icon: UserCog, order: 10 },
+  { group: 'Admin', to: '/settings', label: 'Settings', icon: Settings, end: true, order: 10, roles: MANAGERS },
+  { group: 'Admin', to: '/users', label: 'Users', icon: ShieldCheck, order: 80, roles: MANAGERS },
+  { group: 'Admin', to: '/branches', label: 'Branches', icon: Building2, order: 90, roles: [ROLES.SUPERADMIN] },
 ];
+
+function navFor(role) {
+  const items = [...CORE_NAV, ...moduleNav].filter((item) => !item.roles || item.roles.includes(role));
+  return GROUPS.map((title) => ({
+    title,
+    items: items.filter((item) => (item.group ?? '') === title).sort((a, b) => (a.order ?? 100) - (b.order ?? 100)),
+  })).filter((group) => group.items.length > 0);
+}
 
 function Sidebar({ role }) {
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Main">
-      {NAV.filter((group) => !group.roles || group.roles.includes(role)).map((group, i) => (
-        <div key={group.title ?? i}>
+      {navFor(role).map((group) => (
+        <div key={group.title || 'main'}>
           {group.title && <p className="mb-1 px-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">{group.title}</p>}
           <ul className="space-y-0.5">
-            {group.items
-              .filter((item) => !item.roles || item.roles.includes(role))
-              .map((item) => (
-                <li key={item.label}>
-                  {item.to ? (
-                    <NavLink
-                      to={item.to}
-                      end={item.end}
-                      className={({ isActive }) =>
-                        cx(
-                          'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                          isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                        )
-                      }
-                    >
-                      <item.icon className="size-4" aria-hidden />
-                      {item.label}
-                    </NavLink>
-                  ) : (
-                    <span
-                      className="flex cursor-default items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400"
-                      title={`Coming in milestone ${item.soon}`}
-                    >
-                      <item.icon className="size-4" aria-hidden />
-                      {item.label}
-                      <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Soon</span>
-                    </span>
-                  )}
-                </li>
-              ))}
+            {group.items.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    cx(
+                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                    )
+                  }
+                >
+                  <item.icon className="size-4" aria-hidden />
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
           </ul>
         </div>
       ))}

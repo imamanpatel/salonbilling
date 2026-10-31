@@ -18,5 +18,10 @@ export const LEAD_SOURCES = ['WALK_IN', 'REFERRAL', 'PHONE', 'INSTAGRAM', 'FACEB
 export const ENQUIRY_TYPES = ['HOT', 'WARM', 'COLD'];
 export const ENQUIRY_STATUSES = ['PENDING', 'CONVERTED', 'CLOSED'];
 
+/** All payment methods. WALLET and GIFT_CARD only apply to bill payments. */
+export const PAYMENT_METHODS = ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'WALLET', 'GIFT_CARD', 'OTHER'];
+/** Methods for money that actually changes hands (advances, top-ups, salaries, expenses, purchases). */
+export const CASH_METHODS = ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'];
+
 /** Request header carrying the active branch for branch-scoped API routes. */
 export const BRANCH_HEADER = 'x-branch-id';

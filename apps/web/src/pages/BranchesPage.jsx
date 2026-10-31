@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Pencil, Plus } from 'lucide-react';
+import { Building2, ExternalLink, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { branchSchema } from '@salon/shared';
 import { Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, PageHeader, StatusBadge, Textarea } from '../components/ui.jsx';
@@ -34,6 +34,18 @@ export default function BranchesPage() {
       ),
     },
     { key: 'gstin', header: 'GSTIN', render: (b) => b.gstin ?? '—' },
+    {
+      key: 'slug',
+      header: 'Booking link',
+      render: (b) =>
+        b.slug ? (
+          <a href={`/book/${b.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline">
+            /book/{b.slug} <ExternalLink className="size-3" aria-hidden />
+          </a>
+        ) : (
+          <span className="text-xs text-slate-400">Not set</span>
+        ),
+    },
     { key: 'hours', header: 'Hours', render: (b) => `${b.openTime} – ${b.closeTime}` },
     { key: 'status', header: 'Status', render: (b) => <StatusBadge active={b.isActive} /> },
     {
@@ -91,11 +103,13 @@ function BranchFormModal({ branch, onClose }) {
       openTime: branch.openTime ?? '10:00',
       closeTime: branch.closeTime ?? '20:00',
       isActive: branch.isActive ?? true,
+      slug: branch.slug ?? '',
     },
     onSubmit: async (payload) => {
       await api(isNew ? '/branches' : `/branches/${branch.id}`, { method: isNew ? 'POST' : 'PUT', body: payload });
       toast.success(isNew ? `Branch "${payload.name}" created with default GST rates` : 'Branch updated');
       queryClient.invalidateQueries({ queryKey: ['branches'] });
+      if (!isNew) queryClient.invalidateQueries({ queryKey: [branch.id, 'website', 'info'] });
       await refresh();
       onClose();
     },
@@ -138,6 +152,14 @@ function BranchFormModal({ branch, onClose }) {
         </Field>
         <Field label="Closes at" error={errors.closeTime?.message} required>
           <Input type="time" invalid={!!errors.closeTime} {...register('closeTime')} />
+        </Field>
+        <Field
+          label="Public link name"
+          hint={`lowercase, e.g. andheri — used in your booking link (${window.location.origin}/book/andheri)`}
+          error={errors.slug?.message}
+          className="sm:col-span-2"
+        >
+          <Input autoCapitalize="none" spellCheck={false} maxLength={40} placeholder="andheri" invalid={!!errors.slug} {...register('slug')} />
         </Field>
         <Field label="Address" error={errors.address?.message} className="sm:col-span-2">
           <Textarea rows={2} invalid={!!errors.address} {...register('address')} />

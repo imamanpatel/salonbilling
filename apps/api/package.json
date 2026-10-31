@@ -11,7 +11,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "node --env-file=.env prisma/seed.js",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:local": "node -e \"require('fs').mkdirSync('.data', { recursive: true })\" && pglite-server --db=.data/pglite --port=5433 --max-connections=10"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -29,6 +30,8 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.13",
+    "@electric-sql/pglite-socket": "0.2.16",
     "pino-pretty": "13.2.0",
     "prisma": "6.19.3",
     "supertest": "7.3.1",
