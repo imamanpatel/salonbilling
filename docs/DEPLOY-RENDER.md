@@ -104,10 +104,12 @@ The import runs **from your PC** straight into the Supabase database.
    npm install
    cd apps\api
    $env:DATABASE_URL = "postgresql://postgres.abcdefghij:MyLongPassword123@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require&connection_limit=5"
-   npm run import:easysalon -- --file "$HOME\Downloads\easysalon-export-DATE.json" --no-images --dry-run
-   npm run import:easysalon -- --file "$HOME\Downloads\easysalon-export-DATE.json" --no-images
+   npm run import:easysalon -- --file "$HOME\Downloads\easysalon-export-DATE.json" --no-images --exclude-clients 62,525 --dry-run
+   npm run import:easysalon -- --file "$HOME\Downloads\easysalon-export-DATE.json" --no-images --exclude-clients 62,525
    Remove-Item Env:DATABASE_URL
    ```
+
+   `--exclude-clients 62,525` leaves out Easy Salon's two "Testing" clients and their ₹0 test bills.
 
    The import prints the database it writes to: it must say `…pooler.supabase.com`, not `127.0.0.1`.
    Check the dry run's summary before running the real import. `--no-images` skips the website photos,

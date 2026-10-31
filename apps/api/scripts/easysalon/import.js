@@ -11,7 +11,7 @@ import { buildModel } from './parse.js';
 
 // Imports an Easy Salon export (made with export.browser.js) into one branch.
 //
-//   npm run import:easysalon -- --file export.json [--branch "Jaunpur"] [--dry-run] [--no-images]
+//   npm run import:easysalon -- --file export.json [--branch "Jaunpur"] [--dry-run] [--no-images] [--exclude-clients 62,525]
 //
 // Safe to run again with a newer export before you go live: records get stable ids (or are matched on their
 // natural key, e.g. client phone), bills and appointments already imported are left alone, and opening
@@ -24,6 +24,8 @@ const { values: args } = parseArgs({
     branch: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
     'no-images': { type: 'boolean', default: false },
+    // Easy Salon client numbers to leave out (test entries), e.g. --exclude-clients 62,525
+    'exclude-clients': { type: 'string', default: '' },
   },
 });
 
@@ -390,7 +392,8 @@ async function importImages(branchId, model) {
 async function main() {
   if (!args.file) throw new Error('Usage: npm run import:easysalon -- --file easysalon-export.json [--branch "Name"] [--dry-run] [--no-images]');
   const data = JSON.parse(await fs.promises.readFile(path.resolve(args.file), 'utf8'));
-  const model = buildModel(data, { today: todayIso(config.timezone) });
+  const excludeClientIds = args['exclude-clients'].split(',').map((s) => s.trim()).filter(Boolean);
+  const model = buildModel(data, { today: todayIso(config.timezone), excludeClientIds });
   console.log(`Easy Salon export from ${data.exportedAt}\n`);
   summarise(model);
   if (args['dry-run']) {

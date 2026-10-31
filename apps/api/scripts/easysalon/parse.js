@@ -256,7 +256,7 @@ function parseAppointment(raw, today) {
 }
 
 /** Build every record the importer writes. `today` is the salon's business date (YYYY-MM-DD). */
-export function buildModel(data, { today }) {
+export function buildModel(data, { today, excludeClientIds = [] }) {
   if (data?.source !== 'easysalon') throw new Error('This file is not an Easy Salon export (missing "source": "easysalon").');
   const warnings = [];
 
@@ -469,9 +469,18 @@ export function buildModel(data, { today }) {
   const clientByPhone = new Map();
   const clientByLegacy = new Map();
   const SOURCES = { 'walk-in': 'WALK_IN', 'cold calling': 'PHONE', referral: 'REFERRAL', instagram: 'INSTAGRAM', facebook: 'FACEBOOK', google: 'GOOGLE', website: 'WEBSITE', justdial: 'JUSTDIAL' };
+  // Test clients left out on request (--exclude-clients), with their bills, appointments and enquiries.
+  const excludedIds = new Set(excludeClientIds.map(Number));
+  const excludedPhones = new Set(data.clients.filter((c) => excludedIds.has(c.id)).map((c) => digits10(c.phone || c.detail?.cont)));
+  const isExcluded = (legacyId, phoneText) => excludedIds.has(Number(legacyId)) || excludedPhones.has(digits10(phoneText));
+  const leftOut = { clients: 0, bills: 0, appointments: 0 };
   for (const c of [...data.clients].sort((a, b) => a.id - b.id)) {
     const d = c.detail ?? {};
     const phoneNo = digits10(c.phone || d.cont);
+    if (isExcluded(c.id, phoneNo)) {
+      leftOut.clients++;
+      continue;
+    }
     if (phoneNo.length !== 10) {
       warnings.push(`Client #${c.id} skipped: phone is not 10 digits`);
       continue;
@@ -515,6 +524,10 @@ export function buildModel(data, { today }) {
   const bills = [];
   for (const raw of data.bills) {
     const bill = parseBill(raw, warnings);
+    if (isExcluded(bill.clientLegacyId, bill.clientPhone)) {
+      leftOut.bills++;
+      continue;
+    }
     bill.client = clientFor(bill.clientLegacyId, bill.clientPhone);
     if (!bill.client && digits10(bill.clientPhone).length === 10) {
       // The client was deleted in Easy Salon but the bill remains: recreate them from the invoice.
@@ -607,6 +620,10 @@ export function buildModel(data, { today }) {
   const linkedBills = new Set();
   for (const raw of data.appointments) {
     const appt = parseAppointment(raw, today);
+    if (isExcluded(appt.clientLegacyId, appt.clientPhone)) {
+      leftOut.appointments++;
+      continue;
+    }
     appt.client = clientFor(appt.clientLegacyId, appt.clientPhone);
     if (!appt.client || !appt.date || !appt.items.length) {
       warnings.push(`Appointment #${raw.id} skipped: ${appt.client ? 'no date or services' : 'client not found'}`);
@@ -645,7 +662,10 @@ export function buildModel(data, { today }) {
         client: clientByPhone.get(phoneNo) ?? null,
       };
     })
-    .filter((e) => e.legacyId && e.phone.length === 10);
+    .filter((e) => e.legacyId && e.phone.length === 10 && !isExcluded(null, e.phone));
+  if (leftOut.clients) {
+    warnings.push(`Left out as test data: ${leftOut.clients} clients, ${leftOut.bills} bills, ${leftOut.appointments} appointments`);
+  }
 
   const expenses = data.expenses
     .map((e) => {

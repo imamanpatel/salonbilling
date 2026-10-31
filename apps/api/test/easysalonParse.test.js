@@ -177,6 +177,21 @@ describe('Easy Salon export model', () => {
     expect(appt.items[0].staff.name).toBe('Asha');
   });
 
+  it('leaves out test clients with their bills and appointments', () => {
+    const model = buildModel(
+      exportWith({
+        bills: [
+          rawBill(1, { clientId: 3, phone: '9000000003', items: [['Service Haircut', 'Asha', '0.00', '0', '1', '0.00']], total: '0.00', paid: '0.00', payMode: '--' }),
+          rawBill(2, { clientId: 1, items: [['Service Haircut', 'Asha', '500.00', '0', '1', '500.00']], total: '500.00', paid: '500.00' }),
+        ],
+      }),
+      { today: '2026-10-31', excludeClientIds: ['3'] },
+    );
+    expect(model.clients.map((c) => c.phone)).toEqual(['9000000001']);
+    expect(model.bills.map((b) => b.legacyId)).toEqual([2]);
+    expect(model.warnings).toContain('Left out as test data: 1 clients, 1 bills, 0 appointments');
+  });
+
   it('rejects files that are not Easy Salon exports', () => {
     expect(() => buildModel({ source: 'other' }, { today: '2026-10-31' })).toThrow(/not an Easy Salon export/);
   });
