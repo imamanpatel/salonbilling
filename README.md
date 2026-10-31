@@ -40,6 +40,11 @@ npm run db:seed         #             create the first superadmin
 npm run dev:local       # database + API (http://localhost:4000) + web (http://localhost:5173)
 ```
 
+## Going live
+
+[docs/DEPLOY.md](docs/DEPLOY.md) walks through putting Sabilling on an Ubuntu server with HTTPS, nightly
+backups, and moving your Easy Salon data across on switch-over day.
+
 ## Getting started with PostgreSQL
 
 Requires Node 22+ and PostgreSQL 14+.
