@@ -13,6 +13,7 @@ import {
 import { api } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.jsx';
 import { useDebounced } from '../../lib/hooks.js';
+import { APP_NAME } from '../../lib/brand.js';
 import { useApiForm } from '../../lib/useApiForm.js';
 import { PlaceholderChips, PreviewBox, useInsertableField } from './components.jsx';
 import { CHANNEL_LABELS, KIND_LABELS, PROVIDER_LABELS } from './labels.js';
@@ -167,7 +168,7 @@ function ChannelFieldset({ channel, provider, register, errors }) {
 function TestMessageCard() {
   const form = useApiForm({
     schema: messagingTestSchema,
-    defaultValues: { channel: 'WHATSAPP', to: '', body: 'This is a test message from Sabilling.' },
+    defaultValues: { channel: 'WHATSAPP', to: '', body: `This is a test message from ${APP_NAME}.` },
     onSubmit: async (payload) => {
       const result = await api('/messaging/test', { method: 'POST', body: payload });
       if (!result.ok) toast.error(`Not sent: ${result.error}`);

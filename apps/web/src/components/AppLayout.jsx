@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { ROLES } from '@salon/shared';
 import { useAuth } from '../lib/auth.jsx';
+import { APP_INITIAL, APP_NAME } from '../lib/brand.js';
 import { ROLE_LABELS } from '../lib/format.js';
 import { moduleNav } from '../modules.js';
 import { Button, cx, Select } from './ui.jsx';
@@ -208,10 +209,10 @@ export default function AppLayout() {
   // `dark` = on the gradient header (white text); otherwise on white (the phone drawer).
   const brand = (dark) => (
     <Link to="/" className="flex min-w-0 items-center gap-2.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-400 to-fuchsia-600 text-base font-bold text-white shadow-md ring-2 ring-white/30">S</span>
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-400 to-fuchsia-600 text-base font-bold text-white shadow-md ring-2 ring-white/30">{APP_INITIAL}</span>
       <span className="hidden min-w-0 sm:block">
-        <span className={cx('block text-sm leading-tight font-semibold', dark ? 'text-white' : 'text-slate-900')}>Sabilling</span>
-        <span className={cx('block truncate text-xs leading-tight', dark ? 'text-white/70' : 'text-slate-500')}>{organization?.name}</span>
+        <span className={cx('block text-sm leading-tight font-semibold', dark ? 'text-white' : 'text-slate-900')}>{APP_NAME}</span>
+        <span className={cx('block truncate text-xs leading-tight', dark ? 'text-white/70' : 'text-slate-500')}>Billing & bookings</span>
       </span>
     </Link>
   );

@@ -29,7 +29,7 @@ function SetupChecklist({ role, hasServices, hasProviders }) {
 
   return (
     <Card>
-      <CardHeader title="Get set up" description="Finish these so your team can start using Sabilling." />
+      <CardHeader title="Get set up" description="Finish these so your team can start billing." />
       <ul className="divide-y divide-slate-100">
         {checklist.map((item) => (
           <li key={item.label}>

@@ -1,12 +1,13 @@
 import { Clock, Globe, MapPin, Phone } from 'lucide-react';
 import { cx } from '../../components/ui.jsx';
+import { APP_NAME } from '../../lib/brand.js';
 
 /** Full-page, mobile-first frame for pages clients open without signing in. */
 export function PublicShell({ children }) {
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 pt-4 pb-28 sm:pt-8">{children}</main>
-      <footer className="pb-6 text-center text-xs text-slate-400">Powered by Sabilling</footer>
+      <footer className="pb-6 text-center text-xs text-slate-400">© {new Date().getFullYear()} {APP_NAME}</footer>
     </div>
   );
 }

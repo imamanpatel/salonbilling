@@ -1,6 +1,7 @@
 import { loginSchema } from '@salon/shared';
 import { Button, Field, Input } from '../components/ui.jsx';
 import { useAuth } from '../lib/auth.jsx';
+import { APP_INITIAL, APP_NAME } from '../lib/brand.js';
 import { useApiForm } from '../lib/useApiForm.js';
 
 export default function LoginPage() {
@@ -12,14 +13,14 @@ export default function LoginPage() {
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden flex-col justify-between bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 p-12 text-white lg:flex">
         <div className="flex items-center gap-2 text-lg font-semibold">
-          <span className="grid size-9 place-items-center rounded-lg bg-white/15 font-bold">S</span>
-          Sabilling
+          <span className="grid size-9 place-items-center rounded-lg bg-white/15 font-bold">{APP_INITIAL}</span>
+          {APP_NAME}
         </div>
         <div>
           <h1 className="max-w-md text-4xl leading-tight font-semibold">Run every chair, booking and bill from one place.</h1>
           <p className="mt-4 max-w-md text-brand-100">Appointments, billing, clients, staff and stock for salons and spas, across all your branches.</p>
         </div>
-        <p className="text-sm text-brand-100">© {new Date().getFullYear()} Sabilling</p>
+        <p className="text-sm text-brand-100">© {new Date().getFullYear()} {APP_NAME}</p>
       </div>
 
       <div className="flex items-center justify-center p-6">
