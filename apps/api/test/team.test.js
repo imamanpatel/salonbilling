@@ -69,56 +69,63 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Team & expenses (M6)', () => {
   };
 
   describe('attendance', () => {
-    it('lists every active staff member with their record for the day', async () => {
+    it('is for managers only: the front desk cannot see or mark attendance', async () => {
       const desk = await as('desk');
-      const res = await desk.get(`/attendance?date=${today}`).expect(200);
+      await desk.get(`/attendance?date=${today}`).expect(403);
+      await desk.put('/attendance').send({ staffId: fx.stylist, date: today, status: 'PRESENT' }).expect(403);
+      await desk.post('/attendance/check-in').send({ staffId: fx.stylist }).expect(403);
+    });
+
+    it('lists every active staff member with their record for the day', async () => {
+      const manager = await as('admin');
+      const res = await manager.get(`/attendance?date=${today}`).expect(200);
       expect(res.body.data.map((r) => r.staff.name)).toEqual(['Stylist One', 'Stylist Two', 'Desk Helper']);
       expect(res.body.data.every((r) => r.record === null)).toBe(true);
-      await desk.get('/attendance?date=31-10-2026').expect(400);
+      await manager.get('/attendance?date=31-10-2026').expect(400);
     });
 
     it('upserts a day record and validates times', async () => {
-      const desk = await as('desk');
+      const manager = await as('admin');
       const day = shiftIso(today, -1);
-      const first = await desk.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'HALF_DAY', checkIn: '10:00', checkOut: '14:00' }).expect(200);
-      const again = await desk.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'PRESENT', checkIn: '10:00', checkOut: '19:30', note: 'Stayed late' }).expect(200);
+      const first = await manager.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'HALF_DAY', checkIn: '10:00', checkOut: '14:00' }).expect(200);
+      const again = await manager.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'PRESENT', checkIn: '10:00', checkOut: '19:30', note: 'Stayed late' }).expect(200);
       expect(again.body.data).toMatchObject({ id: first.body.data.id, date: day, status: 'PRESENT', checkOut: '19:30', note: 'Stayed late' });
       expect(await prisma.attendance.count({ where: { staffId: fx.stylist } })).toBe(1);
 
-      const bad = await desk.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'PRESENT', checkIn: '10:00', checkOut: '09:00' });
+      const bad = await manager.put('/attendance').send({ staffId: fx.stylist, date: day, status: 'PRESENT', checkIn: '10:00', checkOut: '09:00' });
       expect(bad.status).toBe(400);
       expect(bad.body.error.details).toEqual({ checkOut: 'Cannot be before check-in' });
 
-      const listed = await desk.get(`/attendance?date=${day}`).expect(200);
+      const listed = await manager.get(`/attendance?date=${day}`).expect(200);
       expect(listed.body.data.find((r) => r.staff.id === fx.stylist).record).toMatchObject({ status: 'PRESENT', checkIn: '10:00' });
     });
 
     it('checks staff in and out at the current business time', async () => {
-      const desk = await as('desk');
-      const early = await desk.post('/attendance/check-out').send({ staffId: fx.stylist2 });
+      const manager = await as('admin');
+      const early = await manager.post('/attendance/check-out').send({ staffId: fx.stylist2 });
       expect(early.status).toBe(409);
       expect(early.body.error.message).toMatch(/not checked in/);
 
-      const checkIn = await desk.post('/attendance/check-in').send({ staffId: fx.stylist2 }).expect(200);
+      const checkIn = await manager.post('/attendance/check-in').send({ staffId: fx.stylist2 }).expect(200);
       expect(checkIn.body.data).toMatchObject({ date: today, status: 'PRESENT', checkOut: null });
       expect(checkIn.body.data.checkIn).toMatch(HHMM);
-      await desk.post('/attendance/check-in').send({ staffId: fx.stylist2 }).expect(409);
+      await manager.post('/attendance/check-in').send({ staffId: fx.stylist2 }).expect(409);
 
-      const checkOut = await desk.post('/attendance/check-out').send({ staffId: fx.stylist2 }).expect(200);
+      const checkOut = await manager.post('/attendance/check-out').send({ staffId: fx.stylist2 }).expect(200);
       expect(checkOut.body.data.checkOut).toMatch(HHMM);
       expect(checkOut.body.data.checkOut >= checkOut.body.data.checkIn).toBe(true);
 
-      await desk.post('/attendance/check-in').send({ staffId: 'not-a-uuid' }).expect(400);
+      await manager.post('/attendance/check-in').send({ staffId: 'not-a-uuid' }).expect(400);
     });
 
     it('summarises the month per staff member', async () => {
-      const desk = await as('desk');
+      const manager = await as('admin');
       // Make sure the month has at least one ABSENT and one LEAVE row for the stylist.
       const other = today === monthStart ? shiftIso(today, 1) : monthStart;
-      await desk.put('/attendance').send({ staffId: fx.stylist, date: other, status: 'LEAVE' }).expect(200);
-      await desk.put('/attendance').send({ staffId: fx.stylist, date: today, status: 'ABSENT' }).expect(200);
+      await manager.put('/attendance').send({ staffId: fx.stylist, date: other, status: 'LEAVE' }).expect(200);
+      await manager.put('/attendance').send({ staffId: fx.stylist, date: today, status: 'ABSENT' }).expect(200);
 
-      const res = await desk.get(`/attendance/monthly?month=${month}`).expect(200);
+      const res = await manager.get(`/attendance/monthly?month=${month}`).expect(200);
       const { days, staff } = res.body.data;
       expect(days[0]).toBe(monthStart);
       expect(days).toContain(today);
@@ -128,7 +135,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Team & expenses (M6)', () => {
       expect(stylist.summary.leave).toBe(today === monthStart ? 0 : 1);
       const stylist2 = staff.find((s) => s.id === fx.stylist2);
       expect(stylist2.summary).toEqual({ present: 1, halfDay: 0, absent: 0, leave: 0 });
-      await desk.get('/attendance/monthly?month=2026-13').expect(400);
+      await manager.get('/attendance/monthly?month=2026-13').expect(400);
     });
   });
 

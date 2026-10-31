@@ -22,7 +22,7 @@ const CORE_NAV = [
   { group: 'Front desk', to: '/clients', label: 'Clients', icon: Users, order: 40 },
   { group: 'Front desk', to: '/enquiries', label: 'Enquiries', icon: UserPlus, order: 50 },
   { group: 'Catalogue', to: '/services', label: 'Services', icon: Scissors, order: 10 },
-  { group: 'Team', to: '/staff', label: 'Staff', icon: UserCog, order: 10 },
+  { group: 'Team', to: '/staff', label: 'Staff', icon: UserCog, order: 10, roles: MANAGERS },
   { group: 'Admin', to: '/settings', label: 'Settings', icon: Settings, end: true, order: 10, roles: MANAGERS },
   { group: 'Admin', to: '/users', label: 'Users', icon: ShieldCheck, order: 80, roles: MANAGERS },
   { group: 'Admin', to: '/branches', label: 'Branches', icon: Building2, order: 90, roles: [ROLES.SUPERADMIN] },

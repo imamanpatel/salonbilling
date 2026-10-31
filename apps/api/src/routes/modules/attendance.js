@@ -1,17 +1,20 @@
 import { Router } from 'express';
+import { ROLES } from '@salon/shared';
 import { attendanceClockSchema, attendanceSchema } from '@salon/shared/hr';
 import { config } from '../../config.js';
 import { prisma } from '../../db.js';
 import { fromIsoDate, todayIso, toIsoDate } from '../../lib/dates.js';
 import { conflict } from '../../lib/errors.js';
 import { findInBranch } from '../../lib/http.js';
+import { requireRole } from '../../middleware/auth.js';
 import { validateBody } from '../../middleware/validate.js';
 import { dateParam, monthDays, monthParam, monthRange, nowTime, STAFF_ORDER, staffSummary } from '../../services/hr.js';
 
-// Any signed-in role may mark attendance (the front desk usually does it).
+// Team pages are for managers; front-desk users have no access to attendance.
 export const mount = { path: '/attendance', scope: 'branch' };
 
 const router = Router();
+router.use(requireRole(ROLES.SUPERADMIN, ROLES.ADMIN));
 
 const recordDto = (row) =>
   row && { id: row.id, staffId: row.staffId, date: toIsoDate(row.date), status: row.status, checkIn: row.checkIn, checkOut: row.checkOut, note: row.note };

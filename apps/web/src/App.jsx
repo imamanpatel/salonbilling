@@ -52,7 +52,7 @@ function SignedInApp() {
         <Route path="clients" element={<ClientsPage />} />
         <Route path="enquiries" element={<EnquiriesPage />} />
         <Route path="services" element={<ServicesPage />} />
-        <Route path="staff" element={<StaffPage />} />
+        <Route path="staff" element={<RequireRole roles={MANAGERS}><StaffPage /></RequireRole>} />
         <Route path="settings" element={<RequireRole roles={MANAGERS}><SettingsPage /></RequireRole>} />
         <Route path="users" element={<RequireRole roles={MANAGERS}><UsersPage /></RequireRole>} />
         <Route path="branches" element={<RequireRole roles={[ROLES.SUPERADMIN]}><BranchesPage /></RequireRole>} />
