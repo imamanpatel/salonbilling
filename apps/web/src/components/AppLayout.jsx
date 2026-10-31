@@ -36,11 +36,31 @@ function navFor(role) {
   })).filter((group) => group.items.length > 0);
 }
 
+// Each menu group has its own colour, used for its icons so pages are easy to tell apart at a glance.
+const GROUP_TONES = {
+  '': 'bg-brand-100 text-brand-600',
+  'Front desk': 'bg-rose-100 text-rose-600',
+  Catalogue: 'bg-violet-100 text-violet-600',
+  Inventory: 'bg-amber-100 text-amber-700',
+  Team: 'bg-sky-100 text-sky-600',
+  Business: 'bg-emerald-100 text-emerald-600',
+  Admin: 'bg-slate-200 text-slate-600',
+};
+const ACTIVE_PILL = 'bg-linear-to-r from-brand-600 to-fuchsia-600 text-white shadow-sm shadow-brand-600/25';
+
 const topLinkClass = ({ isActive }) =>
   cx(
-    'rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
-    isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+    'rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
+    isActive ? ACTIVE_PILL : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700',
   );
+
+function IconChip({ icon: Icon, group }) {
+  return (
+    <span className={cx('grid size-7 shrink-0 place-items-center rounded-lg', GROUP_TONES[group] ?? GROUP_TONES[''])}>
+      <Icon className="size-4" aria-hidden />
+    </span>
+  );
+}
 
 /** Dropdown in the top menu. A <details> element, closed on outside click and route change by AppLayout. */
 function NavMenu({ title, items, pathname }) {
@@ -49,24 +69,24 @@ function NavMenu({ title, items, pathname }) {
     <details className="group relative">
       <summary
         className={cx(
-          'flex cursor-pointer list-none items-center gap-1 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors [&::-webkit-details-marker]:hidden',
-          active ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+          'flex cursor-pointer list-none items-center gap-1 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors [&::-webkit-details-marker]:hidden',
+          active ? ACTIVE_PILL : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700',
         )}
       >
         {title}
         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden />
       </summary>
-      <div className="absolute left-0 z-40 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+      <div className="absolute left-0 z-40 mt-2 w-60 rounded-xl border border-brand-100 bg-white p-1.5 shadow-xl shadow-brand-900/10">
         {items.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
             className={({ isActive }) =>
-              cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-50 font-medium text-brand-700' : 'text-slate-700 hover:bg-slate-100')
+              cx('flex items-center gap-3 rounded-lg px-2.5 py-1.5 text-sm', isActive ? 'bg-brand-50 font-medium text-brand-700' : 'text-slate-700 hover:bg-slate-50')
             }
           >
-            <item.icon className="size-4 text-slate-400" aria-hidden />
+            <IconChip icon={item.icon} group={title} />
             {item.label}
           </NavLink>
         ))}
@@ -117,12 +137,12 @@ function DrawerNav({ role }) {
                   end={item.end}
                   className={({ isActive }) =>
                     cx(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                      isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                      'flex items-center gap-3 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors',
+                      isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
                     )
                   }
                 >
-                  <item.icon className="size-4" aria-hidden />
+                  <IconChip icon={item.icon} group={group.title} />
                   {item.label}
                 </NavLink>
               </li>
@@ -139,11 +159,11 @@ function UserMenu() {
   const initials = user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
   return (
     <details className="group relative">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg p-1 pr-2 hover:bg-slate-100 [&::-webkit-details-marker]:hidden">
-        <span className="grid size-8 place-items-center rounded-full bg-brand-600 text-xs font-semibold text-white">{initials}</span>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-full p-1 pr-3 hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+        <span className="grid size-8 place-items-center rounded-full bg-white text-xs font-bold text-brand-700 ring-2 ring-white/40">{initials}</span>
         <span className="hidden text-left sm:block">
-          <span className="block text-sm leading-tight font-medium text-slate-900">{user.name}</span>
-          <span className="block text-xs leading-tight text-slate-500">{ROLE_LABELS[user.role]}</span>
+          <span className="block text-sm leading-tight font-medium text-white">{user.name}</span>
+          <span className="block text-xs leading-tight text-white/70">{ROLE_LABELS[user.role]}</span>
         </span>
       </summary>
       <div className="absolute right-0 z-40 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
@@ -185,12 +205,13 @@ export default function AppLayout() {
     };
   }, []);
 
-  const brand = (
-    <Link to="/" className="flex min-w-0 items-center gap-2">
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">S</span>
+  // `dark` = on the gradient header (white text); otherwise on white (the phone drawer).
+  const brand = (dark) => (
+    <Link to="/" className="flex min-w-0 items-center gap-2.5">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-400 to-fuchsia-600 text-base font-bold text-white shadow-md ring-2 ring-white/30">S</span>
       <span className="hidden min-w-0 sm:block">
-        <span className="block text-sm leading-tight font-semibold text-slate-900">Sabilling</span>
-        <span className="block truncate text-xs leading-tight text-slate-500">{organization?.name}</span>
+        <span className={cx('block text-sm leading-tight font-semibold', dark ? 'text-white' : 'text-slate-900')}>Sabilling</span>
+        <span className={cx('block truncate text-xs leading-tight', dark ? 'text-white/70' : 'text-slate-500')}>{organization?.name}</span>
       </span>
     </Link>
   );
@@ -203,7 +224,7 @@ export default function AppLayout() {
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setMobileOpen(false)} aria-hidden />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
             <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
-              {brand}
+              {brand(false)}
               <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} aria-label="Close menu">
                 <X className="size-4" />
               </Button>
@@ -214,29 +235,35 @@ export default function AppLayout() {
       )}
 
       {/* Phones: this bar stays on screen. Desktop: it scrolls away and the menu bar below stays. */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur lg:static lg:bg-white">
-        <div className={cx(container, 'flex h-14 items-center gap-3')}>
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+      <header className="sticky top-0 z-30 bg-linear-to-r from-[#3d0a26] via-brand-800 to-fuchsia-800 text-white shadow-md lg:static">
+        <div className={cx(container, 'flex h-16 items-center gap-3')}>
+          <button type="button" className="grid size-9 place-items-center rounded-lg hover:bg-white/10 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
-          </Button>
-          {brand}
+          </button>
+          {brand(true)}
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            <Building2 className="hidden size-4 text-slate-400 sm:block" aria-hidden />
+            <Building2 className="hidden size-4 text-white/70 sm:block" aria-hidden />
             {branches.length > 1 ? (
-              <Select aria-label="Branch" value={branchId ?? ''} onChange={(e) => switchBranch(e.target.value)} className="min-w-0 sm:w-auto sm:max-w-56">
+              // `!` overrides the white input style for the dark header; options keep dark text in the open list.
+              <Select
+                aria-label="Branch"
+                value={branchId ?? ''}
+                onChange={(e) => switchBranch(e.target.value)}
+                className="min-w-0 border-white/25! bg-white/10! font-medium text-white! focus:ring-white/20! sm:w-auto sm:max-w-56 [&>option]:text-slate-900"
+              >
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </Select>
             ) : (
-              <span className="truncate text-sm font-medium text-slate-700">{branches[0]?.name ?? 'No branch'}</span>
+              <span className="truncate text-sm font-medium text-white/90">{branches[0]?.name ?? 'No branch'}</span>
             )}
           </div>
           <UserMenu />
         </div>
       </header>
 
-      <div className="sticky top-0 z-30 hidden border-b border-slate-200 bg-white/95 backdrop-blur lg:block">
+      <div className="sticky top-0 z-30 hidden border-b border-brand-100 bg-white/90 shadow-sm shadow-brand-900/5 backdrop-blur lg:block">
         <div className={container}>
           <TopNav role={user.role} />
         </div>

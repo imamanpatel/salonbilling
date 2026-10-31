@@ -6,7 +6,8 @@ export function cx(...classes) {
 }
 
 const BUTTON_VARIANTS = {
-  primary: 'bg-brand-600 text-white shadow-xs hover:bg-brand-700 focus-visible:ring-brand-500/30',
+  primary:
+    'bg-linear-to-r from-brand-600 to-fuchsia-600 text-white shadow-sm shadow-brand-600/25 hover:from-brand-700 hover:to-fuchsia-700 focus-visible:ring-brand-500/30',
   secondary: 'border border-slate-300 bg-white text-slate-700 shadow-xs hover:bg-slate-50 focus-visible:ring-slate-400/30',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-slate-400/30',
   danger: 'bg-rose-600 text-white shadow-xs hover:bg-rose-700 focus-visible:ring-rose-500/30',
@@ -108,15 +109,18 @@ export function StatusBadge({ active }) {
 }
 
 export function Card({ className, children }) {
-  return <section className={cx('rounded-xl border border-slate-200 bg-white shadow-xs', className)}>{children}</section>;
+  return <section className={cx('rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60', className)}>{children}</section>;
 }
 
 export function CardHeader({ title, description, actions }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
-      <div>
-        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-t-xl border-b border-brand-100/70 bg-linear-to-r from-brand-50/80 via-fuchsia-50/40 to-transparent px-5 py-4">
+      <div className="flex gap-2.5">
+        <span className="mt-0.5 h-4 w-1 shrink-0 rounded-full bg-linear-to-b from-brand-500 to-fuchsia-500" aria-hidden />
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+        </div>
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
@@ -127,7 +131,7 @@ export function PageHeader({ title, description, actions }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+        <h1 className="bg-linear-to-r from-slate-900 via-brand-800 to-fuchsia-700 bg-clip-text text-2xl font-semibold tracking-tight text-transparent">{title}</h1>
         {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -244,10 +248,10 @@ export function DataTable({ columns, rows, loading, error, empty, rowKey = 'id' 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
+        <thead className="bg-brand-50/60">
           <tr>
             {columns.map((col) => (
-              <th key={col.key} scope="col" className={cx('px-4 py-2.5 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase', col.className)}>
+              <th key={col.key} scope="col" className={cx('px-4 py-2.5 text-left text-xs font-semibold tracking-wide text-brand-900/60 uppercase', col.className)}>
                 {col.header}
               </th>
             ))}
@@ -283,7 +287,7 @@ export function Pagination({ page, pageSize, total, onChange }) {
 export function Tabs({ tabs, value, onChange }) {
   return (
     // Scrolls sideways instead of overflowing the page when the tabs don't fit (phones).
-    <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-1 [scrollbar-width:none]">
+    <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-lg bg-brand-50 p-1 ring-1 ring-brand-100 [scrollbar-width:none]">
       {tabs.map((tab) => (
         <button
           key={tab.value}
@@ -293,7 +297,7 @@ export function Tabs({ tabs, value, onChange }) {
           onClick={() => onChange(tab.value)}
           className={cx(
             'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
-            value === tab.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900',
+            value === tab.value ? 'bg-white text-brand-700 shadow-sm shadow-brand-200/60' : 'text-slate-600 hover:text-brand-700',
           )}
         >
           {tab.label}

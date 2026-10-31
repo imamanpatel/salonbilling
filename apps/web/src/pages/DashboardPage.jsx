@@ -87,14 +87,14 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {canManage && (
           <>
-            <Tile icon={IndianRupee} label="Sales today" value={formatINR(today.salesPaise)} hint={plural(today.bills, 'bill')} to="/reports?report=daily-summary&preset=today" />
-            <Tile icon={Wallet} label="Cash collected today" value={formatINR(today.collectionsPaise)} hint="Excludes wallet and gift cards" to="/reports?report=collections&preset=today" />
-            <Tile icon={ReceiptText} label="Bills today" value={today.bills} to="/bills" />
+            <Tile color="emerald" icon={IndianRupee} label="Sales today" value={formatINR(today.salesPaise)} hint={plural(today.bills, 'bill')} to="/reports?report=daily-summary&preset=today" />
+            <Tile color="sky" icon={Wallet} label="Cash collected today" value={formatINR(today.collectionsPaise)} hint="Excludes wallet and gift cards" to="/reports?report=collections&preset=today" />
+            <Tile color="violet" icon={ReceiptText} label="Bills today" value={today.bills} to="/bills" />
           </>
         )}
-        <Tile icon={CalendarDays} label="Appointments today" value={today.appointments.total} hint={appointmentHint(today.appointments.byStatus)} to="/appointments" />
-        <Tile icon={Users} label="Client visits" value={today.clientVisits} hint={`${plural(today.newClients, 'new client')} added today`} to="/clients" />
-        <Tile icon={UserPlus} label="New enquiries" value={today.newEnquiries} to="/enquiries" />
+        <Tile color="brand" icon={CalendarDays} label="Appointments today" value={today.appointments.total} hint={appointmentHint(today.appointments.byStatus)} to="/appointments" />
+        <Tile color="rose" icon={Users} label="Client visits" value={today.clientVisits} hint={`${plural(today.newClients, 'new client')} added today`} to="/clients" />
+        <Tile color="amber" icon={UserPlus} label="New enquiries" value={today.newEnquiries} to="/enquiries" />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -104,6 +104,7 @@ export default function DashboardPage() {
           value={formatINR(duesOutstandingPaise)}
           hint="Unpaid balances on bills"
           to="/bills?status=DUE"
+          color="slate"
           tone={duesOutstandingPaise > 0 ? 'alert' : 'default'}
         />
         <Tile
@@ -112,6 +113,7 @@ export default function DashboardPage() {
           value={plural(lowStockCount, 'product')}
           hint="At or below their alert level"
           to="/products?lowStock=true"
+          color="slate"
           tone={lowStockCount > 0 ? 'alert' : 'default'}
         />
       </div>

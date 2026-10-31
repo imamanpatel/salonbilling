@@ -16,5 +16,11 @@
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply text-slate-900 antialiased;
+  /* Soft blush wash behind every page instead of flat grey. */
+  background:
+    radial-gradient(60rem 24rem at 0% 0%, rgb(252 231 239 / 0.7), transparent 70%),
+    radial-gradient(50rem 22rem at 100% 0%, rgb(245 232 255 / 0.7), transparent 70%),
+    #f7f5fa;
+  background-attachment: fixed;
 }

@@ -428,7 +428,7 @@ function FieldLabel({ children }) {
 function LineItems({ lines, priced, staff, errors, canManage, onChange, onRemove, adder }) {
   return (
     <div className="@container border-t border-slate-100">
-      <div className={cx('hidden gap-3 bg-slate-50 px-5 py-2 text-xs font-semibold tracking-wide text-slate-500 uppercase @2xl:grid', ROW_COLUMNS)}>
+      <div className={cx('hidden gap-3 bg-brand-50/60 px-5 py-2 text-xs font-semibold tracking-wide text-brand-900/60 uppercase @2xl:grid', ROW_COLUMNS)}>
         <span>Item</span>
         <span>Staff</span>
         <span>Qty</span>
@@ -641,14 +641,16 @@ function Summary({ className, state, set, priced, fetching, previewError, errors
         </Row>
 
         {priced?.roundOffPaise !== 0 && priced && <Row label="Round off">{formatINR(priced.roundOffPaise)}</Row>}
-        <Row label="Total" className="text-base font-semibold text-slate-900">{money(priced?.totalPaise)}</Row>
+        <Row label="Total" className="my-1 items-center! rounded-lg border-0! bg-linear-to-r from-brand-600 to-fuchsia-600 px-3 text-base font-semibold text-white shadow-sm shadow-brand-600/25">
+          {money(priced?.totalPaise)}
+        </Row>
         {priced?.advancePaise > 0 && <Row label="Advance received">−{formatINR(priced.advancePaise)}</Row>}
       </div>
 
       <Payments state={state} set={set} priced={priced} errors={errors} paymentRows={paymentRows} />
 
       <div className="divide-y divide-slate-100 border-t border-slate-100">
-        <Row label="Amount due" className={cx('font-medium', priced?.duePaise > 0 ? 'text-amber-700' : 'text-slate-900')}>{money(priced?.duePaise)}</Row>
+        <Row label="Amount due" className={cx('font-semibold', priced?.duePaise > 0 ? 'text-amber-700' : 'text-emerald-700')}>{money(priced?.duePaise)}</Row>
       </div>
       {priced?.pointsEarned > 0 && <p className="text-right text-xs text-slate-500">Client earns {priced.pointsEarned} points.</p>}
       {!ready && <p className="pt-1 text-right text-xs text-slate-500">Pick a client and add items to see the total.</p>}
@@ -756,9 +758,9 @@ function Client360({ client, onRedeem, lines }) {
           <dl className="divide-y divide-slate-100">
             {row('Last visit', a.lastVisitAt ? formatDateTime(a.lastVisitAt) : '—')}
             {row('Total visits', a.visits)}
-            {row('Total spent', formatINR(a.totalSpentPaise))}
-            {row('Wallet', formatINR(a.walletBalancePaise))}
-            {row('Reward points', a.pointsBalance)}
+            {row('Total spent', formatINR(a.totalSpentPaise), 'text-brand-700')}
+            {row('Wallet', formatINR(a.walletBalancePaise), 'text-emerald-700')}
+            {row('Reward points', a.pointsBalance, 'text-amber-700')}
             {a.duePaise > 0 && row('Pending dues', formatINR(a.duePaise), 'text-rose-600')}
             {row('Membership', a.membership ? `${a.membership.name} · till ${formatDate(a.membership.endsOn)}` : '—')}
           </dl>

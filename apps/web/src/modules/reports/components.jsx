@@ -81,14 +81,21 @@ export function BarChart({ bars, height = 160, label, startLabel, endLabel }) {
         role="img"
         aria-label={label}
       >
+        <defs>
+          {/* Pink at the top fading to fuchsia, matching the buttons. */}
+          <linearGradient id="bar-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-fuchsia-500)" />
+            <stop offset="100%" stopColor="var(--color-brand-500)" />
+          </linearGradient>
+        </defs>
         <line x1="0" y1="100" x2={bars.length * slot} y2="100" className="stroke-slate-200" vectorEffect="non-scaling-stroke" />
         {bars.map((bar, i) => {
           const h = max > 0 && bar.value > 0 ? Math.max(1.5, (bar.value / max) * 96) : 0;
           return (
             <g key={bar.key} className="group">
               <title>{bar.title}</title>
-              <rect x={i * slot} y="0" width={slot} height="100" className="fill-transparent group-hover:fill-slate-100" />
-              <rect x={i * slot + 1.5} y={100 - h} width={slot - 3} height={h} rx="0.8" className="fill-brand-500 group-hover:fill-brand-700" />
+              <rect x={i * slot} y="0" width={slot} height="100" className="fill-transparent group-hover:fill-brand-50" />
+              <rect x={i * slot + 1.5} y={100 - h} width={slot - 3} height={h} rx="0.8" fill="url(#bar-fill)" className="group-hover:opacity-80" />
             </g>
           );
         })}
@@ -104,21 +111,39 @@ export function BarChart({ bars, height = 160, label, startLabel, endLabel }) {
 }
 
 /** KPI tile; a link when `to` is given. */
-export function Tile({ icon: Icon, label, value, hint, to, tone = 'default' }) {
+// Tile colours: icon badge, soft background tint and accent stripe.
+const TILE_COLORS = {
+  brand: { chip: 'bg-linear-to-br from-brand-500 to-fuchsia-600 text-white', tint: 'from-brand-50', bar: 'bg-brand-500' },
+  emerald: { chip: 'bg-linear-to-br from-emerald-400 to-teal-600 text-white', tint: 'from-emerald-50', bar: 'bg-emerald-500' },
+  sky: { chip: 'bg-linear-to-br from-sky-400 to-blue-600 text-white', tint: 'from-sky-50', bar: 'bg-sky-500' },
+  violet: { chip: 'bg-linear-to-br from-violet-400 to-purple-600 text-white', tint: 'from-violet-50', bar: 'bg-violet-500' },
+  amber: { chip: 'bg-linear-to-br from-amber-400 to-orange-500 text-white', tint: 'from-amber-50', bar: 'bg-amber-500' },
+  rose: { chip: 'bg-linear-to-br from-rose-400 to-red-600 text-white', tint: 'from-rose-50', bar: 'bg-rose-500' },
+  slate: { chip: 'bg-slate-100 text-slate-500', tint: 'from-white', bar: 'bg-slate-300' },
+};
+
+/** Headline number. `color` picks the tile's colour; `tone="alert"` turns it amber when something needs attention. */
+export function Tile({ icon: Icon, label, value, hint, to, tone = 'default', color = 'brand' }) {
+  const c = TILE_COLORS[tone === 'alert' ? 'amber' : color] ?? TILE_COLORS.brand;
   const body = (
     <>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-slate-500">{label}</p>
-        {Icon && <Icon className={cx('size-4', tone === 'alert' ? 'text-amber-500' : 'text-slate-400 group-hover:text-brand-600')} aria-hidden />}
+      <span className={cx('absolute inset-x-0 top-0 h-1', c.bar)} aria-hidden />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium text-slate-600">{label}</p>
+        {Icon && (
+          <span className={cx('grid size-9 shrink-0 place-items-center rounded-xl shadow-sm', c.chip)}>
+            <Icon className="size-4.5" aria-hidden />
+          </span>
+        )}
       </div>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{value ?? '—'}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{value ?? '—'}</p>
       {hint && <p className="mt-1 truncate text-xs text-slate-500">{hint}</p>}
     </>
   );
-  const className = 'group block rounded-xl border border-slate-200 bg-white p-5 shadow-xs';
+  const className = cx('group relative block overflow-hidden rounded-xl border border-slate-200/80 bg-linear-to-br to-white p-5 shadow-sm shadow-slate-200/60', c.tint);
   if (!to) return <div className={className}>{body}</div>;
   return (
-    <Link to={to} className={cx(className, 'transition hover:border-brand-200 hover:shadow-sm')}>
+    <Link to={to} className={cx(className, 'transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md')}>
       {body}
     </Link>
   );
