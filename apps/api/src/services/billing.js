@@ -324,7 +324,9 @@ export async function priceBill(db, ctx, body, { strict }) {
       available -= value;
     }
   }
-  const manualDiscountPaise = Math.min(body.manualDiscountPaise, available);
+  // A percentage applies to the same amount a coupon does (after line discounts, excluding items that take no bill discount).
+  const manualRequested = body.manualDiscountPct > 0 ? percentOf(eligiblePaise, body.manualDiscountPct) : body.manualDiscountPaise;
+  const manualDiscountPaise = Math.min(manualRequested, available);
 
   const computed = computeBill({
     lines: lines.map((l) => ({

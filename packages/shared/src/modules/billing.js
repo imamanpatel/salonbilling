@@ -149,6 +149,8 @@ export const billSchema = z.object({
     z.string().max(40).nullable(),
   ),
   manualDiscountPaise: paise.default(0),
+  /** Extra discount as a percentage instead; when above 0 it is used and manualDiscountPaise is ignored. */
+  manualDiscountPct: percent.default(0),
   redeemPoints: z.coerce.number().int('Whole points only').min(0, 'Cannot be negative').default(0),
   payments: z.array(paymentLineSchema).max(10, 'At most 10 payments').default([]),
   notes: optionalText(500),

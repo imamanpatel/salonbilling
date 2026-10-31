@@ -43,6 +43,8 @@ const taxIdFor = (taxes, rate, kind) =>
 /** POS state -> billSchema payload. Payment rows without an amount are left out (`paymentRows` maps indexes back). */
 function toPayload(state, taxes) {
   const paymentRows = state.payments.filter((p) => p.amount !== '');
+  const manual = state.manualDiscount.trim();
+  const percentManual = state.manualDiscountType === 'PERCENT';
   const payload = {
     clientId: state.client?.id,
     appointmentId: state.appointmentId || null,
@@ -61,7 +63,9 @@ function toPayload(state, taxes) {
       };
     }),
     couponCode: state.couponCode || null,
-    manualDiscountPaise: state.manualDiscount.trim() === '' ? 0 : moneyInput(state.manualDiscount),
+    // The extra discount is either a percentage (worked out by the server) or rupees.
+    manualDiscountPaise: manual === '' || percentManual ? 0 : moneyInput(manual),
+    manualDiscountPct: manual !== '' && percentManual ? Number(manual) : 0,
     redeemPoints: state.redeemPoints.trim() === '' ? 0 : state.redeemPoints,
     payments: paymentRows.map((p) => ({ method: p.method, amountPaise: moneyInput(p.amount), reference: p.reference || null })),
     notes: state.notes || null,
@@ -71,7 +75,7 @@ function toPayload(state, taxes) {
 }
 
 const EMPTY = {
-  client: null, lines: [], couponInput: '', couponCode: '', manualDiscount: '', redeemPoints: '',
+  client: null, lines: [], couponInput: '', couponCode: '', manualDiscount: '', manualDiscountType: 'PERCENT', redeemPoints: '',
   // null until the catalogue loads and gives the branch's default rate.
   taxRate: null,
   payments: [newPayment()], notes: '', sendReceipt: false,
@@ -608,12 +612,32 @@ function Summary({ className, state, set, priced, fetching, previewError, errors
         {fieldError('couponCode')}
 
         {/* Inputs are w-full by default, so sizes go on wrappers. */}
-        <Row label="Discount (₹)">
-          <div className="w-28">
-            <Input aria-label="Extra discount" inputMode="decimal" placeholder="0" value={state.manualDiscount} invalid={!!errors.manualDiscountPaise} onChange={(e) => set({ manualDiscount: e.target.value })} className="text-right" />
+        <Row
+          label="Discount"
+          hint={state.manualDiscountType === 'PERCENT' && priced?.manualDiscountPaise > 0 ? `${state.manualDiscount}% = −${formatINR(priced.manualDiscountPaise)}` : undefined}
+        >
+          <div className="flex w-32">
+            <Input
+              aria-label="Extra discount"
+              inputMode="decimal"
+              placeholder="0"
+              value={state.manualDiscount}
+              invalid={!!(errors.manualDiscountPaise || errors.manualDiscountPct)}
+              onChange={(e) => set({ manualDiscount: e.target.value })}
+              className="min-w-0 rounded-r-none text-right"
+            />
+            <button
+              type="button"
+              title="Switch between percent and rupees"
+              onClick={() => set((s) => ({ manualDiscountType: s.manualDiscountType === 'PERCENT' ? 'FLAT' : 'PERCENT' }))}
+              className="rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              {state.manualDiscountType === 'PERCENT' ? '%' : '₹'}
+            </button>
           </div>
         </Row>
         {fieldError('manualDiscountPaise')}
+        {fieldError('manualDiscountPct')}
 
         {priced?.pointsBalance > 0 && (
           <>

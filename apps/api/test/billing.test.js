@@ -134,6 +134,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Billing (M4)', () => {
       expect(await points(client.id)).toBe(110);
     });
 
+    it('takes an extra discount as a percentage of the amount after line discounts', async () => {
+      const client = await newClient();
+      const items = [{ kind: 'SERVICE', refId: fx.colour, discount: { type: 'PERCENT', value: 10 } }, haircut()];
+      // 225000 + 50000 after the 10% line discount on colour; 10% of 275000 = 27500.
+      const pct = await preview(desk, { clientId: client.id, items, manualDiscountPct: 10, manualDiscountPaise: 999 }).expect(200);
+      expect(pct.body.data).toMatchObject({ manualDiscountPaise: 27500, discountPaise: 25000 + 27500 });
+      const capped = await preview(desk, { clientId: client.id, items: [haircut()], manualDiscountPct: 100 }).expect(200);
+      expect(capped.body.data.manualDiscountPaise).toBe(50000);
+      const bad = await preview(desk, { clientId: client.id, items: [haircut()], manualDiscountPct: 120 });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error.details.manualDiscountPct).toBe('Cannot exceed 100');
+    });
+
     it('rejects redeeming more points than the client has or than the bill can take', async () => {
       const client = await newClient();
       await prisma.pointsEntry.create({ data: { clientId: client.id, branchId: fx.a1, points: 1000, reason: 'OPENING' } });
