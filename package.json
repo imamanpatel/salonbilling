@@ -1,0 +1,23 @@
+{
+  "name": "sabilling",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @salon/api\" \"npm run dev -w @salon/web\"",
+    "build": "npm run build -w @salon/web",
+    "test": "npm test --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @salon/api",
+    "db:seed": "npm run db:seed -w @salon/api",
+    "db:studio": "npm run db:studio -w @salon/api"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.6"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

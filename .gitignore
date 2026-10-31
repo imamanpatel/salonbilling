@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local scratch from the feature scan
+.playwright-mcp/
+dashboard.png

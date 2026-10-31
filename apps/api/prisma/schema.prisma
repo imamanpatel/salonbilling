@@ -1,0 +1,205 @@
+// Money columns are integer paise (*Paise). Date-only columns use @db.Date.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  USER
+}
+
+enum StaffKind {
+  SERVICE_PROVIDER
+  STAFF
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+}
+
+enum ServiceGender {
+  FEMALE
+  MALE
+  UNISEX
+}
+
+enum TaxAppliesTo {
+  SERVICE
+  PRODUCT
+  ALL
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  branches Branch[]
+  users    User[]
+}
+
+model Branch {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  salonName      String
+  phone          String?
+  email          String?
+  website        String?
+  gstin          String?
+  address        String?
+  openTime       String       @default("10:00")
+  closeTime      String       @default("20:00")
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  users             UserBranch[]
+  staff             Staff[]
+  serviceCategories ServiceCategory[]
+  services          Service[]
+  taxRates          TaxRate[]
+  setting           BranchSetting?
+  holidays          Holiday[]
+
+  @@unique([organizationId, name])
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  username       String       @unique
+  passwordHash   String
+  role           Role         @default(USER)
+  isActive       Boolean      @default(true)
+  /// Bumped on password change / deactivation to invalidate existing sessions.
+  tokenVersion   Int          @default(0)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  branches UserBranch[]
+}
+
+model UserBranch {
+  userId   String
+  branchId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+}
+
+model Staff {
+  id                   String    @id @default(uuid())
+  branchId             String
+  branch               Branch    @relation(fields: [branchId], references: [id])
+  kind                 StaffKind
+  name                 String
+  phone                String
+  email                String?
+  gender               Gender
+  dob                  DateTime? @db.Date
+  joinedOn             DateTime  @db.Date
+  address              String?
+  emergencyName        String?
+  emergencyPhone       String?
+  monthlySalaryPaise   Int       @default(0)
+  shiftStart           String?
+  shiftEnd             String?
+  serviceCommissionPct Decimal   @default(0) @db.Decimal(5, 2)
+  productCommissionPct Decimal   @default(0) @db.Decimal(5, 2)
+  designation          String?
+  department           String?
+  attendanceCode       String?
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([branchId, phone])
+  @@index([branchId, kind, isActive])
+}
+
+model ServiceCategory {
+  id        String   @id @default(uuid())
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
+  services Service[]
+
+  @@unique([branchId, name])
+}
+
+model Service {
+  id               String          @id @default(uuid())
+  branchId         String
+  branch           Branch          @relation(fields: [branchId], references: [id])
+  categoryId       String
+  category         ServiceCategory @relation(fields: [categoryId], references: [id])
+  name             String
+  gender           ServiceGender   @default(UNISEX)
+  durationMin      Int
+  pricePaise       Int
+  memberPricePaise Int
+  rewardPoints     Int             @default(0)
+  showOnWebsite    Boolean         @default(true)
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([branchId, categoryId, name])
+  @@index([branchId, isActive])
+}
+
+model TaxRate {
+  id        String       @id @default(uuid())
+  branchId  String
+  branch    Branch       @relation(fields: [branchId], references: [id])
+  name      String
+  ratePct   Decimal      @db.Decimal(5, 2)
+  appliesTo TaxAppliesTo
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  @@unique([branchId, name])
+}
+
+model BranchSetting {
+  branchId           String   @id
+  branch             Branch   @relation(fields: [branchId], references: [id])
+  autoBirthday       Boolean  @default(true)
+  autoAnniversary    Boolean  @default(true)
+  autoAppointment    Boolean  @default(true)
+  autoPendingPayment Boolean  @default(false)
+  autoPackageExpiry  Boolean  @default(false)
+  /// `redeemPoints` points are worth `redeemValuePaise`.
+  redeemPoints       Int      @default(1)
+  redeemValuePaise   Int      @default(100)
+  /// 0 = no cap per bill.
+  maxRedeemPoints    Int      @default(0)
+  updatedAt          DateTime @updatedAt
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  date        DateTime @db.Date
+  description String
+
+  @@unique([branchId, date])
+}
