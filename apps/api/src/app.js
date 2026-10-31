@@ -9,9 +9,13 @@ import { errorHandler, notFoundHandler } from './middleware/error.js';
 import authRoutes from './routes/auth.js';
 import branchRoutes from './routes/branches.js';
 import categoryRoutes from './routes/categories.js';
+import clientRoutes from './routes/clients.js';
+import enquiryRoutes from './routes/enquiries.js';
+import followUpRoutes from './routes/followUps.js';
 import serviceRoutes from './routes/services.js';
 import settingsRoutes from './routes/settings.js';
 import staffRoutes from './routes/staff.js';
+import teamRoutes from './routes/team.js';
 import userRoutes from './routes/users.js';
 
 export function createApp() {
@@ -36,6 +40,10 @@ export function createApp() {
   app.use('/api/service-categories', requireAuth, requireBranch, categoryRoutes);
   app.use('/api/services', requireAuth, requireBranch, serviceRoutes);
   app.use('/api/settings', requireAuth, requireBranch, settingsRoutes);
+  app.use('/api/team', requireAuth, requireBranch, teamRoutes);
+  app.use('/api/clients', requireAuth, requireBranch, clientRoutes);
+  app.use('/api/enquiries', requireAuth, requireBranch, enquiryRoutes);
+  app.use('/api/follow-ups', requireAuth, requireBranch, followUpRoutes);
 
   app.use('/api', notFoundHandler);
   app.use(errorHandler);

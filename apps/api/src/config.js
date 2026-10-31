@@ -13,4 +13,6 @@ export const config = {
   port: Number(process.env.PORT ?? 4000),
   jwtSecret,
   sessionHours: Number(process.env.SESSION_HOURS ?? 12),
+  /** "Today" for follow-ups, birthdays and reports is computed in this zone, not the server's. */
+  timezone: process.env.BUSINESS_TIMEZONE ?? 'Asia/Kolkata',
 };

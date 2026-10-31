@@ -92,6 +92,7 @@ const BADGE_TONES = {
   amber: 'bg-amber-50 text-amber-700',
   brand: 'bg-brand-50 text-brand-700',
   blue: 'bg-sky-50 text-sky-700',
+  rose: 'bg-rose-50 text-rose-700',
 };
 
 export function Badge({ tone = 'slate', className, children }) {
@@ -155,8 +156,11 @@ export function EmptyState({ icon: Icon, title, description, action }) {
 
 const MODAL_WIDTHS = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
-/** Native <dialog> modal: focus trap, Esc and backdrop click close it. Mount it to open it. */
-export function Modal({ title, description, onClose, footer, size = 'md', children }) {
+/**
+ * Native <dialog> modal: focus trap, Esc and backdrop click close it. Mount it to open it.
+ * Set `focusForm={false}` for read-mostly dialogs that merely contain a form.
+ */
+export function Modal({ title, description, onClose, footer, size = 'md', focusForm = true, children }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -164,8 +168,8 @@ export function Modal({ title, description, onClose, footer, size = 'md', childr
     if (!dialog || dialog.open) return;
     dialog.showModal();
     // showModal() focuses the first focusable element (the close button); start on the first form field instead.
-    dialog.querySelector('form :is(input:not([type=hidden]), select, textarea):not(:disabled)')?.focus();
-  }, []);
+    if (focusForm) dialog.querySelector('form :is(input:not([type=hidden]), select, textarea):not(:disabled)')?.focus();
+  }, [focusForm]);
 
   return (
     <dialog
@@ -251,6 +255,27 @@ export function DataTable({ columns, rows, loading, error, empty, rowKey = 'id' 
         </thead>
         <tbody className="divide-y divide-slate-100">{body}</tbody>
       </table>
+    </div>
+  );
+}
+
+/** "Showing 26–50 of 812" with previous/next buttons. `page` is 1-based. */
+export function Pagination({ page, pageSize, total, onChange }) {
+  if (!total) return null;
+  const pages = Math.ceil(total / pageSize);
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-600">
+      <span className="tabular-nums">
+        Showing {from}–{to} of {total}
+      </span>
+      {pages > 1 && (
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</Button>
+          <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onChange(page + 1)}>Next</Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -38,6 +38,30 @@ enum TaxAppliesTo {
   ALL
 }
 
+enum LeadSource {
+  WALK_IN
+  REFERRAL
+  PHONE
+  INSTAGRAM
+  FACEBOOK
+  GOOGLE
+  WEBSITE
+  JUSTDIAL
+  OTHER
+}
+
+enum EnquiryType {
+  HOT
+  WARM
+  COLD
+}
+
+enum EnquiryStatus {
+  PENDING
+  CONVERTED
+  CLOSED
+}
+
 model Organization {
   id        String   @id @default(uuid())
   name      String
@@ -45,6 +69,7 @@ model Organization {
 
   branches Branch[]
   users    User[]
+  clients  Client[]
 }
 
 model Branch {
@@ -71,6 +96,9 @@ model Branch {
   taxRates          TaxRate[]
   setting           BranchSetting?
   holidays          Holiday[]
+  clients           Client[]
+  clientFollowUps   ClientFollowUp[]
+  enquiries         Enquiry[]
 
   @@unique([organizationId, name])
 }
@@ -90,7 +118,11 @@ model User {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  branches UserBranch[]
+  branches          UserBranch[]
+  assignedClients   Client[]          @relation("ClientAssignee")
+  assignedEnquiries Enquiry[]         @relation("EnquiryAssignee")
+  createdFollowUps  ClientFollowUp[]
+  enquiryResponses  EnquiryResponse[]
 }
 
 model UserBranch {
@@ -202,4 +234,87 @@ model Holiday {
   description String
 
   @@unique([branchId, date])
+}
+
+/// Clients belong to the organisation (they may visit any branch); `homeBranch` is where they were added.
+model Client {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  homeBranchId   String?
+  homeBranch     Branch?      @relation(fields: [homeBranchId], references: [id])
+  name           String
+  phone          String
+  email          String?
+  gender         Gender
+  dob            DateTime?    @db.Date
+  anniversary    DateTime?    @db.Date
+  address        String?
+  source         LeadSource?
+  notes          String?
+  /// Shareable invite code for referrals.
+  referralCode   String       @unique
+  assignedToId   String?
+  assignedTo     User?        @relation("ClientAssignee", fields: [assignedToId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  followUps ClientFollowUp[]
+  enquiries Enquiry[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId, name])
+}
+
+model ClientFollowUp {
+  id          String    @id @default(uuid())
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  branchId    String
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  dueOn       DateTime  @db.Date
+  dueTime     String?
+  note        String
+  completedAt DateTime?
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([branchId, completedAt, dueOn])
+}
+
+model Enquiry {
+  id           String          @id @default(uuid())
+  branchId     String
+  branch       Branch          @relation(fields: [branchId], references: [id])
+  clientId     String?
+  client       Client?         @relation(fields: [clientId], references: [id])
+  name         String
+  phone        String
+  email        String?
+  address      String?
+  enquiryFor   String
+  type         EnquiryType
+  source       LeadSource
+  status       EnquiryStatus   @default(PENDING)
+  followUpOn   DateTime?       @db.Date
+  assignedToId String?
+  assignedTo   User?           @relation("EnquiryAssignee", fields: [assignedToId], references: [id])
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  responses EnquiryResponse[]
+
+  @@index([branchId, status, followUpOn])
+}
+
+model EnquiryResponse {
+  id          String   @id @default(uuid())
+  enquiryId   String
+  enquiry     Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  note        String
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
 }

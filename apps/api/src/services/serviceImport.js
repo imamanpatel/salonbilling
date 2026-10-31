@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { rupeesToPaise, serviceSchema } from '@salon/shared';
+import { cellText } from './excel.js';
 
 export const IMPORT_COLUMNS = ['Category', 'Service name', 'For (Female/Male/Unisex)', 'Duration (min)', 'Price (₹, excl. tax)', 'Member price (₹)', 'Reward points'];
 export const MAX_IMPORT_ROWS = 2000;
@@ -66,15 +67,4 @@ export async function parseServiceSheet(buffer) {
     rows.push({ rowNumber, categoryName, data });
   });
   return { rows, errors };
-}
-
-function cellText(value) {
-  if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value === 'object') {
-    if ('result' in value) return cellText(value.result); // formula
-    if ('richText' in value) return value.richText.map((part) => part.text).join('').trim();
-    if ('text' in value) return String(value.text).trim(); // hyperlink
-  }
-  return String(value).trim();
 }

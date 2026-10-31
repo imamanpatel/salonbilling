@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FolderTree, Pencil, Plus, Scissors, Search, Trash2, Upload } from 'lucide-react';
+import { FolderTree, Pencil, Plus, Scissors, Search, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { categorySchema, formatINR, paiseToRupees, SERVICE_GENDERS, serviceSchema } from '@salon/shared';
+import ImportModal from '../components/ImportModal.jsx';
 import { Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, StatusBadge } from '../components/ui.jsx';
-import { api, downloadFile } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { moneyInput, SERVICE_GENDER_LABELS } from '../lib/format.js';
 import { useDebounced } from '../lib/hooks.js';
@@ -156,7 +157,19 @@ export default function ServicesPage() {
 
       {editing && <ServiceFormModal service={editing} categories={categories.data ?? []} onClose={() => setEditing(null)} />}
       {dialog === 'categories' && <CategoriesModal categories={categories.data ?? []} onClose={() => setDialog(null)} />}
-      {dialog === 'import' && <ImportServicesModal onClose={() => setDialog(null)} />}
+      {dialog === 'import' && (
+        <ImportModal
+          title="Import services from Excel"
+          description="Rows matching an existing service (same category and name) update it."
+          columns="Category, Service name, For, Duration, Price, Member price, Reward points"
+          hint="New categories are created automatically. Prices are in rupees, excluding tax."
+          templatePath="/services/import-template"
+          templateName="services-import-template.xlsx"
+          uploadPath="/services/import"
+          invalidate={[[branchId, 'services'], [branchId, 'service-categories']]}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </>
   );
 }
@@ -348,92 +361,6 @@ function CategoriesModal({ categories, onClose }) {
           </li>
         ))}
       </ul>
-    </Modal>
-  );
-}
-
-function ImportServicesModal({ onClose }) {
-  const { branchId } = useAuth();
-  const queryClient = useQueryClient();
-  const [file, setFile] = useState(null);
-
-  const upload = useMutation({
-    mutationFn: () => {
-      const body = new FormData();
-      body.append('file', file);
-      return api('/services/import', { method: 'POST', body });
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: [branchId, 'services'] });
-      queryClient.invalidateQueries({ queryKey: [branchId, 'service-categories'] });
-      toast.success(`Import finished: ${result.created} added, ${result.updated} updated`);
-    },
-    onError: (err) => toast.error(err.message),
-  });
-  const result = upload.data;
-
-  async function downloadTemplate() {
-    try {
-      await downloadFile('/services/import-template', 'services-import-template.xlsx');
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  return (
-    <Modal
-      title="Import services from Excel"
-      description="Rows matching an existing service (same category and name) update it."
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>{result ? 'Done' : 'Cancel'}</Button>
-          <Button onClick={() => upload.mutate()} disabled={!file} loading={upload.isPending}>
-            <Upload className="size-4" /> Import
-          </Button>
-        </>
-      }
-    >
-      <ol className="space-y-5 text-sm text-slate-700">
-        <li>
-          <p className="font-medium text-slate-900">1. Download the template</p>
-          <p className="mb-2 text-slate-500">Columns: Category, Service name, For, Duration, Price, Member price, Reward points.</p>
-          <Button variant="secondary" size="sm" onClick={downloadTemplate}>
-            <Download className="size-3.5" /> services-import-template.xlsx
-          </Button>
-        </li>
-        <li>
-          <p className="font-medium text-slate-900">2. Fill in your services</p>
-          <p className="text-slate-500">New categories are created automatically. Prices are in rupees, excluding tax.</p>
-        </li>
-        <li>
-          <p className="font-medium text-slate-900">3. Upload the file</p>
-          <input
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              upload.reset();
-            }}
-            className="mt-2 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
-          />
-        </li>
-      </ol>
-
-      {result && (
-        <div className="mt-5 rounded-lg border border-slate-200 p-4 text-sm">
-          <p className="font-medium text-slate-900">
-            {result.created} added · {result.updated} updated · {result.errors.length} skipped
-          </p>
-          {result.errors.length > 0 && (
-            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-rose-700">
-              {result.errors.map((error) => (
-                <li key={error.row}>Row {error.row}: {error.message}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </Modal>
   );
 }

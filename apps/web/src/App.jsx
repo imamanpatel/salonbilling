@@ -5,12 +5,15 @@ import { Spinner } from './components/ui.jsx';
 import { useAuth } from './lib/auth.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import BranchesPage from './pages/BranchesPage.jsx';
+import ClientsPage from './pages/ClientsPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
+import EnquiriesPage from './pages/EnquiriesPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import ServicesPage from './pages/ServicesPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import StaffPage from './pages/StaffPage.jsx';
+import TodayPage from './pages/TodayPage.jsx';
 import UsersPage from './pages/UsersPage.jsx';
 
 const MANAGERS = [ROLES.SUPERADMIN, ROLES.ADMIN];
@@ -36,6 +39,9 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
+        <Route path="today" element={<TodayPage />} />
+        <Route path="clients" element={<ClientsPage />} />
+        <Route path="enquiries" element={<EnquiriesPage />} />
         <Route path="services" element={<ServicesPage />} />
         <Route path="staff" element={<StaffPage />} />
         <Route path="settings" element={<RequireRole roles={MANAGERS}><SettingsPage /></RequireRole>} />

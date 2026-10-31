@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router';
 import {
   BadgePercent, BarChart3, Boxes, Building2, CalendarCheck, CalendarClock, Crown, KeyRound, LayoutDashboard, LogOut,
-  Menu, Package, Receipt, Scissors, Settings, ShieldCheck, Star, UserCog, UserPlus, Users, Wallet, X,
+  ListChecks, Menu, Package, Receipt, Scissors, Settings, ShieldCheck, Star, UserCog, UserPlus, Users, Wallet, X,
 } from 'lucide-react';
 import { ROLES } from '@salon/shared';
 import { useAuth } from '../lib/auth.jsx';
@@ -17,10 +17,11 @@ const NAV = [
   {
     title: 'Front desk',
     items: [
+      { to: '/today', label: 'Today', icon: ListChecks },
       { label: 'Appointments', icon: CalendarClock, soon: 'M3' },
       { label: 'Billing', icon: Receipt, soon: 'M4' },
-      { label: 'Clients', icon: Users, soon: 'M2' },
-      { label: 'Enquiries', icon: UserPlus, soon: 'M2' },
+      { to: '/clients', label: 'Clients', icon: Users },
+      { to: '/enquiries', label: 'Enquiries', icon: UserPlus },
       { label: 'Feedback', icon: Star, soon: 'M9' },
     ],
   },

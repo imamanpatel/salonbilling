@@ -8,7 +8,7 @@ Built in JavaScript: React + Vite frontend, Node/Express API, PostgreSQL via Pri
 | Milestone | Scope | Status |
 |---|---|---|
 | **M1 Foundation** | Login & roles, branches, users, staff & service providers, services & categories (+ Excel import), GST rates, loyalty/reminder settings, holidays | ✅ Done |
-| M2 Clients & enquiries | Client profiles, segments, follow-ups, leads | Planned |
+| **M2 Clients & enquiries** | Clients shared across branches (segments, Excel import, 360° profile, invite codes), follow-ups, enquiries with responses and convert-to-client, Today page with birthdays/anniversaries and WhatsApp shortcuts | ✅ Done |
 | M3 Appointments | Calendar by provider, online booking, check-in | Planned |
 | M4 Billing / POS | Bills, split payments, GST, wallet, gift cards, memberships, packages, coupons, points | Planned |
 | M5 Inventory | Products, vendors, purchases, lots & expiry, usage, transfers | Planned |

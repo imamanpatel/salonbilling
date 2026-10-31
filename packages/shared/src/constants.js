@@ -14,5 +14,9 @@ export const SERVICE_GENDERS = ['FEMALE', 'MALE', 'UNISEX'];
 export const TAX_APPLIES_TO = ['SERVICE', 'PRODUCT', 'ALL'];
 export const DEPARTMENTS = ['Front desk', 'Sales', 'Management', 'Accounts', 'Housekeeping', 'Others'];
 
+export const LEAD_SOURCES = ['WALK_IN', 'REFERRAL', 'PHONE', 'INSTAGRAM', 'FACEBOOK', 'GOOGLE', 'WEBSITE', 'JUSTDIAL', 'OTHER'];
+export const ENQUIRY_TYPES = ['HOT', 'WARM', 'COLD'];
+export const ENQUIRY_STATUSES = ['PENDING', 'CONVERTED', 'CLOSED'];
+
 /** Request header carrying the active branch for branch-scoped API routes. */
 export const BRANCH_HEADER = 'x-branch-id';

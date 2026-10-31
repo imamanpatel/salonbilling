@@ -7,10 +7,10 @@ import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 
 const UPCOMING = [
-  ['M2', 'Clients & enquiries', 'Client profiles, segments, follow-ups and lead tracking'],
   ['M3', 'Appointments', 'Calendar by service provider, online booking, check-in'],
   ['M4', 'Billing', 'Bills, split payments, GST, wallet, memberships, packages, coupons'],
   ['M5', 'Inventory', 'Products, vendors, purchases, expiry and low-stock alerts'],
+  ['M7', 'Messaging', 'Automatic SMS & WhatsApp for birthdays, reminders and bills'],
 ];
 
 function Stat({ icon: Icon, label, value, to }) {

@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { GENDERS, ROLES, SERVICE_GENDERS, STAFF_KINDS, TAX_APPLIES_TO } from './constants.js';
+import {
+  ENQUIRY_STATUSES, ENQUIRY_TYPES, GENDERS, LEAD_SOURCES, ROLES, SERVICE_GENDERS, STAFF_KINDS, TAX_APPLIES_TO,
+} from './constants.js';
 
 // Request schemas shared by the API (authoritative validation) and the web forms (instant feedback).
 // Money fields are integer paise; dates are "YYYY-MM-DD"; times are "HH:mm".
@@ -9,8 +11,12 @@ const blankToNull = (v) => (v === '' || v === undefined ? null : v);
 const required = (label, max = 120) => z.string().trim().min(1, `${label} is required`).max(max);
 const optionalText = (max = 255) => z.string().trim().max(max).nullish().transform((v) => v || null);
 
-const phone = z.string().trim().regex(/^\+?\d{10,15}$/, 'Enter a valid phone number');
-const optionalPhone = z.preprocess(blankToNull, phone.nullable());
+/** "+91 98765-43210" -> "+919876543210": drop spaces, dashes, dots and brackets. */
+export const normalizePhone = (value) => (typeof value === 'string' ? value.replace(/[\s().-]/g, '') : value);
+
+const phone = z.preprocess(normalizePhone, z.string().regex(/^\+?\d{10,15}$/, 'Enter a valid phone number'));
+const optionalPhone = z.preprocess((v) => blankToNull(normalizePhone(v)), phone.nullable());
+const optionalId = z.preprocess(blankToNull, z.string().uuid().nullable());
 const optionalEmail = z.preprocess(blankToNull, z.string().trim().email('Enter a valid email').nullable());
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
@@ -142,6 +148,51 @@ export const settingsSchema = z.object({
 export const holidaySchema = z.object({
   date: isoDate,
   description: required('Description', 120),
+});
+
+export const clientSchema = z.object({
+  name: required('Client name', 80),
+  phone,
+  email: optionalEmail,
+  gender: z.enum(GENDERS),
+  dob: optionalDate,
+  anniversary: optionalDate,
+  address: optionalText(500),
+  source: z.preprocess(blankToNull, z.enum(LEAD_SOURCES).nullable()),
+  assignedToId: optionalId,
+  notes: optionalText(1000),
+});
+
+export const clientFollowUpSchema = z.object({
+  dueOn: isoDate,
+  dueTime: optionalTime,
+  note: required('Note', 500),
+});
+
+export const enquirySchema = z.object({
+  name: required('Name', 80),
+  phone,
+  email: optionalEmail,
+  address: optionalText(500),
+  enquiryFor: required('Enquiry for', 200),
+  type: z.enum(ENQUIRY_TYPES),
+  source: z.enum(LEAD_SOURCES),
+  status: z.enum(ENQUIRY_STATUSES).default('PENDING'),
+  followUpOn: optionalDate,
+  assignedToId: optionalId,
+  notes: optionalText(1000),
+});
+
+/** Enquiries don't capture gender, so it is asked for when the lead becomes a client. */
+export const convertEnquirySchema = z.object({
+  gender: z.enum(GENDERS),
+});
+
+/** A logged conversation with a lead; optionally reschedules or closes it. */
+export const enquiryResponseSchema = z.object({
+  note: required('Response', 500),
+  nextFollowUpOn: optionalDate,
+  status: z.preprocess(blankToNull, z.enum(['PENDING', 'CLOSED']).nullable()),
 });
 
 /** Flatten a ZodError into `{ fieldName: firstMessage }` for forms and API error details. */
