@@ -33,6 +33,10 @@ export function errorHandler(err, req, res, next) {
   }
   if (err.type === 'entity.parse.failed') return send(res, 400, 'BAD_JSON', 'Malformed JSON body');
   if (err.name === 'MulterError') return send(res, 400, 'UPLOAD', err.message);
+  // Missing file under /uploads (express.static with fallthrough: false passes the raw ENOENT or a 404).
+  if (req.originalUrl.startsWith('/uploads/') && (err.code === 'ENOENT' || err.status === 404 || err.statusCode === 404)) {
+    return send(res, 404, 'NOT_FOUND', 'File not found');
+  }
 
   req.log?.error({ err }, 'Unhandled error');
   send(res, 500, 'INTERNAL', 'Something went wrong. Please try again.');

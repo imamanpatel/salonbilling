@@ -1,0 +1,37 @@
+# Render Blueprint: Render → New → Blueprint → pick this repo. See docs/DEPLOY-RENDER.md.
+# One free web service runs the API and serves the built web app; the database is on Supabase.
+services:
+  - type: web
+    name: sabilling
+    runtime: node
+    plan: free
+    region: singapore
+    # --include=dev: the build needs Vite and Prisma, and NODE_ENV=production would otherwise skip them.
+    # db:seed only creates the first superadmin; on later deploys it does nothing.
+    buildCommand: npm ci --include=dev && npm run build && npm run db:deploy && npm run db:seed
+    startCommand: npm run start -w @salon/api
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: BUSINESS_TIMEZONE
+        value: Asia/Kolkata
+      - key: SESSION_HOURS
+        value: "12"
+      - key: JWT_SECRET
+        generateValue: true
+      # Supabase "Session pooler" connection string (see the guide).
+      - key: DATABASE_URL
+        sync: false
+      # e.g. https://sabilling.onrender.com, or your own domain once added.
+      - key: APP_URL
+        sync: false
+      - key: SEED_ORG_NAME
+        value: Glam & Grit Salon
+      - key: SEED_ADMIN_USERNAME
+        value: superadmin
+      - key: SEED_ADMIN_PASSWORD
+        sync: false

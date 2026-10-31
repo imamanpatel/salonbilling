@@ -43,8 +43,9 @@ npm run dev:local       # database + API (http://localhost:4000) + web (http://l
 ## Going live
 
 [docs/DEPLOY.md](docs/DEPLOY.md) walks through putting Sabilling on an Ubuntu server with HTTPS, nightly
-backups, and moving your Easy Salon data across on switch-over day. For a free server, start with
-[docs/DEPLOY-ORACLE.md](docs/DEPLOY-ORACLE.md) (Oracle Cloud Always Free).
+backups, and moving your Easy Salon data across on switch-over day. To run it free with nothing to manage,
+see [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md) (Render + Supabase); for Oracle Cloud's free server,
+[docs/DEPLOY-ORACLE.md](docs/DEPLOY-ORACLE.md).
 
 ## Getting started with PostgreSQL
 

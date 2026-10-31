@@ -404,7 +404,9 @@ async function main() {
   const user = await prisma.user.findFirst({ where: { organizationId: org.id, role: 'SUPERADMIN', isActive: true }, orderBy: { createdAt: 'asc' } });
   if (!user) throw new Error('No active superadmin to record as the importer. Run npm run db:seed first.');
 
-  console.log('\nImporting…');
+  // Show where this is going: the same command imports into your local or your online database.
+  console.log(`\nDatabase: ${new URL(process.env.DATABASE_URL).host}`);
+  console.log('Importing…');
   const started = Date.now();
   const branch = await findBranch(org, model);
   const ids = { category: new Map(), service: new Map(), product: new Map(), membership: new Map(), package: new Map(), staff: new Map(), client: new Map(), bill: new Map() };

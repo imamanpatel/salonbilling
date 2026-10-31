@@ -9,12 +9,13 @@ const password = process.env.SEED_ADMIN_PASSWORD;
 const orgName = process.env.SEED_ORG_NAME || 'My Salon';
 
 async function main() {
-  if (!password || password.length < 8) {
-    throw new Error('Set SEED_ADMIN_PASSWORD (at least 8 characters) in apps/api/.env before seeding.');
-  }
+  // Checked first so this can run on every deploy (e.g. in Render's build) without keeping the password set.
   if (await prisma.user.findUnique({ where: { username } })) {
     console.log(`User "${username}" already exists; nothing to seed.`);
     return;
+  }
+  if (!password || password.length < 8) {
+    throw new Error('Set SEED_ADMIN_PASSWORD (at least 8 characters) in apps/api/.env before seeding.');
   }
   await prisma.$transaction(async (tx) => {
     const org = await tx.organization.create({ data: { name: orgName } });

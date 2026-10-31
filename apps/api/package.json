@@ -5,14 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file=.env --watch src/server.js",
-    "start": "node --env-file=.env src/server.js",
+    "start": "node --env-file-if-exists=.env src/server.js",
     "test": "vitest run",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "node --env-file=.env prisma/seed.js",
+    "db:seed": "node --env-file-if-exists=.env prisma/seed.js",
     "db:studio": "prisma studio",
-    "import:easysalon": "node --env-file=.env scripts/easysalon/import.js",
+    "import:easysalon": "node --env-file-if-exists=.env scripts/easysalon/import.js",
     "db:local": "node -e \"require('fs').mkdirSync('.data', { recursive: true })\" && pglite-server --db=.data/pglite --port=5433 --max-connections=10"
   },
   "dependencies": {

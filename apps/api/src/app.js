@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
@@ -85,7 +86,32 @@ export function createApp() {
     }),
   );
 
+  serveWebApp(app);
+
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
   return app;
+}
+
+/**
+ * The built web app, if it exists: files from apps/web/dist, and index.html for every other page address
+ * (/clients, /book/<branch>…) so the browser-side router can take over. Behind Nginx (docs/DEPLOY.md) Nginx
+ * serves these first; on single-service hosts such as Render this is what serves the app.
+ */
+function serveWebApp(app) {
+  const indexHtml = path.join(config.webDir, 'index.html');
+  if (!fs.existsSync(indexHtml)) return;
+  app.use(
+    express.static(config.webDir, {
+      index: false,
+      // Vite puts content-hashed files under /assets: safe to cache forever. Everything else revalidates.
+      setHeaders: (res, file) =>
+        res.set('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'),
+    }),
+  );
+  app.use((req, res, next) => {
+    const isPage = (req.method === 'GET' || req.method === 'HEAD') && !/^\/(api|uploads)(\/|$)/.test(req.path);
+    if (!isPage) return next();
+    res.set('Cache-Control', 'no-cache').sendFile(indexHtml);
+  });
 }

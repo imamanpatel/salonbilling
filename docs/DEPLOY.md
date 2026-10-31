@@ -8,8 +8,8 @@ switch-over day.
 running by PM2) and Nginx (serves the app over HTTPS). Daily backups go to a folder you copy off the
 server.
 
-**Using Oracle Cloud's free server?** Start with [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md): it sets up the
-Oracle account and server, then sends you back here with the few changes to make.
+**Want it free?** [DEPLOY-RENDER.md](DEPLOY-RENDER.md) runs it on Render + Supabase with no server to manage
+and no card (with some limits). For Oracle Cloud's free server, start with [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md).
 
 ## 0. What you need
 
