@@ -53,7 +53,17 @@ const option = (raw) => {
   const at = String(raw ?? '').lastIndexOf('#');
   return at < 0 ? { label: String(raw ?? '').trim(), value: '' } : { label: raw.slice(0, at).trim(), value: raw.slice(at + 1).trim() };
 };
-const cleanName = (name) => String(name ?? '').replace(/\s+/g, ' ').trim();
+const ENTITIES = { amp: '&', quot: '"', apos: "'", '#39': "'", '#039': "'", lt: '<', gt: '>', nbsp: ' ' };
+/** Easy Salon stores some names HTML-escaped ("Face &amp; Neck"), sometimes twice; decode until stable. */
+export function decodeEntities(text) {
+  let out = String(text ?? '');
+  for (let prev; prev !== out; ) {
+    prev = out;
+    out = out.replace(/&(amp|quot|apos|#0?39|lt|gt|nbsp);/g, (_, name) => ENTITIES[name]);
+  }
+  return out;
+}
+const cleanName = (name) => decodeEntities(name).replace(/\s+/g, ' ').trim();
 const nameKey = (name) => cleanName(name).toLowerCase();
 const genderOf = (code) => (String(code) === '1' || /^male$/i.test(code) ? 'MALE' : 'FEMALE');
 const digits10 = (text) => String(text ?? '').replace(/\D/g, '').slice(-10);

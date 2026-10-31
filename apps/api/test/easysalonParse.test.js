@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, buildModel, isoDate, money, parseBill, parseDateTime, parseLine, parseSummary, time24 } from '../scripts/easysalon/parse.js';
+import { allocate, buildModel, decodeEntities, isoDate, money, parseBill, parseDateTime, parseLine, parseSummary, time24 } from '../scripts/easysalon/parse.js';
 
 // Synthetic data in the shape export.browser.js produces (no real client data).
 
@@ -71,6 +71,7 @@ function exportWith(overrides = {}) {
 
 describe('Easy Salon field parsing', () => {
   it('reads money, dates and times', () => {
+    expect(decodeEntities('Face &amp;amp; Neck &quot;O3+&quot;')).toBe('Face & Neck "O3+"');
     expect(money('9,654.00')).toBe(965400);
     expect(money('--')).toBe(0);
     expect(isoDate('14-11-2024')).toBe('2024-11-14');
