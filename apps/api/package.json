@@ -12,6 +12,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "node --env-file=.env prisma/seed.js",
     "db:studio": "prisma studio",
+    "import:easysalon": "node --env-file=.env scripts/easysalon/import.js",
     "db:local": "node -e \"require('fs').mkdirSync('.data', { recursive: true })\" && pglite-server --db=.data/pglite --port=5433 --max-connections=10"
   },
   "dependencies": {

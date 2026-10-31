@@ -64,6 +64,28 @@ npm run dev
 
 Sign in at http://localhost:5173 with `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`.
 
+## Moving from Easy Salon
+
+Brings over a branch's clients (with wallet and reward-point balances), services, staff, products and stock,
+vendors, packages, memberships, coupons, every bill with its items and payments, appointments, enquiries,
+expenses, feedback and website photos.
+
+1. Sign in to your Easy Salon panel as superadmin, open the browser console (F12 → Console), paste the
+   contents of [apps/api/scripts/easysalon/export.browser.js](apps/api/scripts/easysalon/export.browser.js) and
+   press Enter. It only reads (nothing changes in Easy Salon) and downloads `easysalon-export-<date>.json`
+   after a few minutes. The file holds client phone numbers: keep it private and delete it when done.
+2. Check what will be imported, then import (from `apps/api`):
+
+   ```bash
+   npm run import:easysalon -- --file easysalon-export-2026-10-31.json --dry-run
+   npm run import:easysalon -- --file easysalon-export-2026-10-31.json            # --branch "Name" to choose the branch
+   ```
+
+The import creates the branch if needed and can be re-run with a newer export until you switch over: nothing is
+duplicated, new bills are added, and wallet/points/stock opening balances are reset to the file's values. So stop
+re-running once you start billing in Sabilling. Old bills keep their Easy Salon numbers; clients sharing a phone
+number are merged; services that only exist on old bills come back as inactive services.
+
 ## Tests
 
 ```bash
