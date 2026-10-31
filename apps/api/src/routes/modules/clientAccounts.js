@@ -29,7 +29,7 @@ async function accountSummary(req, client) {
   const { today } = billContext(req);
   const todayDate = fromIsoDate(today);
   const settings = await branchSettings(prisma, req.branchId);
-  const [wallet, points, membership, packages, giftCards, due, recent] = await Promise.all([
+  const [wallet, points, membership, packages, giftCards, due, recent, lifetime] = await Promise.all([
     walletBalance(prisma, client.id),
     pointsBalance(prisma, client.id),
     activeMembership(prisma, client.id, today),
@@ -52,6 +52,7 @@ async function accountSummary(req, client) {
       orderBy: { billedAt: 'desc' },
       take: 10,
     }),
+    prisma.bill.aggregate({ where: { clientId: client.id, status: { not: 'VOID' } }, _count: true, _sum: { totalPaise: true }, _max: { billedAt: true } }),
   ]);
   const branches = await prisma.branch.findMany({
     where: { id: { in: [...new Set(recent.map((b) => b.branchId))] } },
@@ -77,6 +78,9 @@ async function accountSummary(req, client) {
       .filter((cp) => cp.items.some((i) => i.usedQty < i.totalQty)),
     giftCards: giftCards.map((g) => ({ code: g.code, balancePaise: g.balancePaise, expiresOn: toIsoDate(g.expiresOn) })),
     duePaise: due._sum.duePaise ?? 0,
+    visits: lifetime._count,
+    totalSpentPaise: lifetime._sum.totalPaise ?? 0,
+    lastVisitAt: lifetime._max.billedAt,
     recentBills: recent.map(({ branchId, ...bill }) => ({ ...bill, branchId, branchName: branchName.get(branchId) ?? '' })),
   };
 }

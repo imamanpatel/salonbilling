@@ -1,28 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
-import { CalendarCheck, CheckCircle2, Gift, MessageCircle, Plus, Printer, Receipt, Search, Trash2 } from 'lucide-react';
+import { CalendarCheck, CheckCircle2, Gift, MessageCircle, Plus, Printer, Receipt, Search, Trash2, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { fieldErrors, formatINR, paiseToRupees, PAYMENT_METHODS } from '@salon/shared';
 import { billSchema } from '@salon/shared/billing';
-import {
-  Badge, Button, Card, CardHeader, Checkbox, cx, EmptyState, Field, Input, PageHeader, Select, Spinner, Tabs, Textarea,
-} from '../../components/ui.jsx';
+import { Badge, Button, Card, CardHeader, Checkbox, cx, Input, Select, Spinner, Textarea } from '../../components/ui.jsx';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.jsx';
-import { formatDate, moneyInput, whatsappLink } from '../../lib/format.js';
+import { formatDate, formatDateTime, moneyInput, whatsappLink } from '../../lib/format.js';
 import { useDebounced } from '../../lib/hooks.js';
 import ClientPicker from './ClientPicker.jsx';
 import { billingKeys, useActiveStaff, useBillCatalogue, useClientAccount } from './hooks.js';
 import { ITEM_KIND_LABELS, METHOD_LABELS, needsReference } from './labels.js';
 
-const ADD_TABS = [
-  { value: 'SERVICE', label: 'Services' },
-  { value: 'PRODUCT', label: 'Products' },
-  { value: 'PACKAGE', label: 'Packages' },
-  { value: 'MEMBERSHIP', label: 'Memberships' },
-  { value: 'GIFT_CARD', label: 'Gift card' },
-];
+// One compact form, laid out like a paper bill: client, item rows, then the totals and payment rows underneath,
+// with the client's account (wallet, points, packages) alongside.
 
 let lineSeq = 0;
 const newLine = (fields) => ({
@@ -35,7 +28,6 @@ const newLine = (fields) => ({
   catalogPaise: 0,
   discountType: 'PERCENT',
   discount: '',
-  taxRateId: '',
   ...fields,
 });
 const newPayment = (method = 'CASH') => ({ key: (lineSeq += 1), method, amount: '', reference: '' });
@@ -44,8 +36,12 @@ const taxCategory = (kind) => (kind === 'PRODUCT' ? 'PRODUCT' : 'SERVICE');
 const isRedemption = (line) => Boolean(line.clientPackageItemId);
 const fixedLine = (line) => isRedemption(line) || line.kind === 'GIFT_CARD';
 
+/** The tax rate chosen for the bill, as the matching rate for this line (services and products have separate GST rows). */
+const taxIdFor = (taxes, rate, kind) =>
+  rate === '' ? null : taxes.find((t) => Number(t.ratePct) === Number(rate) && (t.appliesTo === 'ALL' || t.appliesTo === taxCategory(kind)))?.id ?? null;
+
 /** POS state -> billSchema payload. Payment rows without an amount are left out (`paymentRows` maps indexes back). */
-function toPayload(state) {
+function toPayload(state, taxes) {
   const paymentRows = state.payments.filter((p) => p.amount !== '');
   const payload = {
     clientId: state.client?.id,
@@ -61,7 +57,7 @@ function toPayload(state) {
         qty: line.qty,
         unitPricePaise: line.price === '' ? null : moneyInput(line.price),
         discount: fixedLine(line) || value === null || value === 0 ? null : { type: line.discountType, value },
-        taxRateId: fixedLine(line) ? null : line.taxRateId || null,
+        taxRateId: fixedLine(line) ? null : taxIdFor(taxes, state.taxRate ?? '', line.kind),
       };
     }),
     couponCode: state.couponCode || null,
@@ -76,6 +72,8 @@ function toPayload(state) {
 
 const EMPTY = {
   client: null, lines: [], couponInput: '', couponCode: '', manualDiscount: '', redeemPoints: '',
+  // null until the catalogue loads and gives the branch's default rate.
+  taxRate: null,
   payments: [newPayment()], notes: '', sendReceipt: false,
 };
 
@@ -96,18 +94,22 @@ export default function PosPage() {
     setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
   };
 
+  const taxes = catalogue.data?.taxes ?? [];
+  const taxRates = [...new Set(taxes.map((t) => Number(t.ratePct)))].sort((a, b) => a - b);
+
+  // Start with the branch's default service GST rate (Settings → Billing), if any.
+  useEffect(() => {
+    if (!catalogue.data || state.taxRate !== null) return;
+    const fallback = taxes.find((t) => t.id === catalogue.data.defaults.serviceTaxId);
+    setState((s) => ({ ...s, taxRate: fallback ? String(Number(fallback.ratePct)) : '' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogue.data]);
+
   const appointment = useQuery({
     queryKey: [branchId, 'appointment', appointmentId],
     queryFn: () => api(`/appointments/${appointmentId}`),
     enabled: Boolean(appointmentId),
   });
-
-  const taxes = catalogue.data?.taxes ?? [];
-  const defaultTaxId = (kind, product) => {
-    const ids = kind === 'PRODUCT' ? [product?.taxRateId, catalogue.data?.defaults.productTaxId] : [catalogue.data?.defaults.serviceTaxId];
-    const category = taxCategory(kind);
-    return ids.find((id) => id && taxes.some((t) => t.id === id && (t.appliesTo === 'ALL' || t.appliesTo === category))) ?? '';
-  };
 
   // Prefill from ?appointmentId= once both the appointment and the catalogue are loaded.
   const prefilled = useRef(null);
@@ -125,7 +127,6 @@ export default function PosPage() {
         staffId: item.staffId ?? '',
         catalogPaise: service?.pricePaise ?? item.pricePaise,
         price: custom ? paiseToRupees(item.pricePaise) : '',
-        taxRateId: defaultTaxId('SERVICE'),
       });
     });
     setState((s) => ({ ...s, client: appt.client, lines }));
@@ -133,7 +134,7 @@ export default function PosPage() {
   }, [appointment.data, catalogue.data]);
 
   const linkedAppointment = appointmentId && appointment.data && state.client?.id === appointment.data.clientId ? appointment.data : null;
-  const { payload, paymentRows } = toPayload({ ...state, appointmentId: linkedAppointment?.id });
+  const { payload, paymentRows } = toPayload({ ...state, appointmentId: linkedAppointment?.id }, taxes);
   const parsed = billSchema.safeParse(payload);
   const localErrors = state.client && state.lines.length && !parsed.success ? fieldErrors(parsed.error) : {};
   const previewKey = useDebounced(parsed.success ? JSON.stringify(payload) : '', 300);
@@ -146,10 +147,6 @@ export default function PosPage() {
   });
   const priced = previewKey && preview.data ? preview.data : null;
   const errors = { ...localErrors, ...(preview.error?.details ?? {}), ...(priced?.errors ?? {}), ...submitErrors };
-  const paymentError = (row, name) => {
-    const index = paymentRows.indexOf(row);
-    return index >= 0 ? errors[`payments.${index}.${name}`] : undefined;
-  };
 
   const create = useMutation({
     mutationFn: () => api('/bills', { method: 'POST', body: payload }),
@@ -177,7 +174,7 @@ export default function PosPage() {
   const startOver = () => {
     setDone(null);
     setSubmitErrors({});
-    setState({ ...EMPTY, payments: [newPayment()] });
+    setState((s) => ({ ...EMPTY, taxRate: s.taxRate, payments: [newPayment()] }));
     prefilled.current = null;
     if (appointmentId) navigate('/billing/new', { replace: true });
   };
@@ -212,88 +209,83 @@ export default function PosPage() {
   const canSubmit = Boolean(state.client && state.lines.length);
 
   return (
-    // Bottom padding below lg keeps the last card clear of the fixed checkout bar.
+    // Bottom padding below lg keeps the form clear of the fixed checkout bar.
     <div className="pb-24 lg:pb-0">
-      <PageHeader
-        title="New bill"
-        description="Pick the client, add what they had, take payment."
-        actions={
-          <Button variant="secondary" onClick={() => navigate('/bills')}>
-            <Receipt className="size-4" /> All bills
-          </Button>
-        }
-      />
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <Card>
+          <CardHeader
+            title="Generate new bill"
+            actions={
+              <Button variant="secondary" size="sm" onClick={() => navigate('/bills')}>
+                <Receipt className="size-4" /> All bills
+              </Button>
+            }
+          />
 
-      {appointmentId && appointment.isPending && <Spinner className="mx-auto my-6" />}
-      {linkedAppointment && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800">
-          <CalendarCheck className="size-4" />
-          Billing the appointment on {formatDate(linkedAppointment.date)} at {linkedAppointment.startTime}
-          {priced?.advancePaise > 0 && <span className="font-medium">· advance paid {formatINR(priced.advancePaise)}</span>}
-        </div>
-      )}
-      {errors.appointmentId && <p className="mb-4 text-sm text-rose-600">{errors.appointmentId}</p>}
-
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader title="Client" />
-            <div className="p-5">
+          <div className="space-y-3 px-4 py-4 sm:px-5">
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Client</span>
               <ClientPicker client={state.client} onChange={setClient} disabled={Boolean(linkedAppointment)} />
-              {errors.clientId && <p className="mt-2 text-xs text-rose-600">{errors.clientId}</p>}
+              {errors.clientId && <p className="mt-1 text-xs text-rose-600">{errors.clientId}</p>}
             </div>
-          </Card>
-
-          <ItemAdder catalogue={catalogue} onAdd={addLine} defaultTaxId={defaultTaxId} />
-
-          <Card>
-            <CardHeader title="Items" description={state.lines.length ? undefined : 'Nothing added yet.'} />
-            {state.lines.length === 0 ? (
-              <EmptyState icon={Receipt} title="Add services or products" description="Use the tabs above, or redeem a package from the client's account." />
-            ) : (
-              <LineItems
-                lines={state.lines}
-                priced={priced}
-                taxes={taxes}
-                staff={staff.data ?? []}
-                errors={errors}
-                canManage={canManage}
-                onChange={updateLine}
-                onRemove={(key) => set((s) => ({ lines: s.lines.filter((l) => l.key !== key) }))}
-              />
+            {appointmentId && appointment.isPending && <Spinner className="mx-auto" />}
+            {linkedAppointment && (
+              <p className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                <CalendarCheck className="size-4" />
+                Appointment on {formatDate(linkedAppointment.date)} at {linkedAppointment.startTime}
+              </p>
             )}
-          </Card>
-        </div>
+            {errors.appointmentId && <p className="text-sm text-rose-600">{errors.appointmentId}</p>}
+          </div>
 
-        <div className="space-y-4 lg:sticky lg:top-4">
-          {state.client && <AccountPanel clientId={state.client.id} onRedeem={redeem} lines={state.lines} />}
-          <Card className="p-4">
-            <DiscountsPanel state={state} set={set} errors={errors} priced={priced} />
-          </Card>
-          <Card className="p-4">
-            <Totals priced={priced} fetching={preview.isFetching} ready={Boolean(state.client && state.lines.length)} error={preview.error} />
-          </Card>
-          <Card className="p-4">
-            <PaymentsPanel state={state} set={set} priced={priced} errors={errors} paymentError={paymentError} paymentRows={paymentRows} />
-          </Card>
-          <Card className="space-y-3 p-4">
-            <Field label="Notes" error={errors.notes}>
-              <Textarea rows={2} value={state.notes} onChange={(e) => set({ notes: e.target.value })} />
-            </Field>
-            <Checkbox
-              label="Send receipt to client"
-              description="WhatsApp/SMS with the bill amount and a feedback link."
-              checked={state.sendReceipt}
-              onChange={(e) => set({ sendReceipt: e.target.checked })}
+          <LineItems
+            lines={state.lines}
+            priced={priced}
+            staff={staff.data ?? []}
+            errors={errors}
+            canManage={canManage}
+            onChange={updateLine}
+            onRemove={(key) => set((s) => ({ lines: s.lines.filter((l) => l.key !== key) }))}
+            adder={<ItemSearch catalogue={catalogue} onAdd={addLine} />}
+          />
+
+          <div className="grid gap-x-6 gap-y-4 border-t border-slate-100 px-4 py-4 sm:px-5 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+            <div className="order-2 space-y-3 md:order-1">
+              <Textarea rows={3} aria-label="Notes" placeholder="Write notes about this bill…" value={state.notes} onChange={(e) => set({ notes: e.target.value })} />
+              {errors.notes && <p className="text-xs text-rose-600">{errors.notes}</p>}
+              <Checkbox
+                label="Send receipt to client"
+                description="WhatsApp/SMS with the amount and a feedback link."
+                checked={state.sendReceipt}
+                onChange={(e) => set({ sendReceipt: e.target.checked })}
+              />
+            </div>
+            <Summary
+              className="order-1 md:order-2"
+              state={state}
+              set={set}
+              priced={priced}
+              fetching={preview.isFetching}
+              previewError={preview.error}
+              errors={errors}
+              paymentRows={paymentRows}
+              taxRates={taxRates}
             />
-            <Button className="hidden w-full lg:inline-flex" onClick={submit} loading={create.isPending} disabled={!canSubmit}>
-              Create bill{priced ? ` · ${formatINR(priced.totalPaise)}` : ''}
+          </div>
+
+          <div className="hidden justify-end border-t border-slate-100 px-5 py-3 lg:flex">
+            <Button onClick={submit} loading={create.isPending} disabled={!canSubmit}>
+              <Receipt className="size-4" /> Create bill{priced ? ` · ${formatINR(priced.totalPaise)}` : ''}
             </Button>
-          </Card>
+          </div>
+        </Card>
+
+        <div className="lg:sticky lg:top-20">
+          <Client360 client={state.client} onRedeem={redeem} lines={state.lines} />
         </div>
       </div>
 
-      {/* Phones and tablets: total and the create button stay in reach while scrolling the long form. */}
+      {/* Phones and tablets: total and the create button stay in reach while scrolling the form. */}
       <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-3 border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgb(15_23_42/0.06)] backdrop-blur lg:hidden">
         <div className="min-w-0 flex-1">
           <p className="text-xs text-slate-500">Total</p>
@@ -310,138 +302,171 @@ export default function PosPage() {
   );
 }
 
-function ItemAdder({ catalogue, onAdd, defaultTaxId }) {
-  const [tab, setTab] = useState('SERVICE');
-  const [search, setSearch] = useState('');
-  const [giftValue, setGiftValue] = useState('');
+const KIND_ORDER = { SERVICE: 0, PACKAGE: 1, PRODUCT: 2, MEMBERSHIP: 3 };
+
+/** One search box for everything sellable; suggestions only appear while typing. */
+function ItemSearch({ catalogue, onAdd }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
   const data = catalogue.data;
 
   const options = useMemo(() => {
-    if (!data) return [];
-    const q = search.trim().toLowerCase();
-    const rows = {
-      SERVICE: data.services.map((s) => ({ id: s.id, name: s.name, sub: s.category?.name, pricePaise: s.pricePaise, row: s })),
-      PRODUCT: data.products.map((p) => ({ id: p.id, name: p.name, sub: [p.brand, p.barcode].filter(Boolean).join(' · '), pricePaise: p.salePricePaise, row: p })),
-      PACKAGE: data.packages.map((p) => ({
-        id: p.id, name: p.name, sub: p.items.map((i) => `${i.qty}× ${i.service.name}`).join(', '), pricePaise: p.pricePaise, row: p,
-      })),
-      MEMBERSHIP: data.membershipPlans.map((p) => ({ id: p.id, name: p.name, sub: `${p.durationDays} days`, pricePaise: p.pricePaise, row: p })),
-    }[tab] ?? [];
-    if (!q) return rows;
-    return rows.filter((r) => r.name.toLowerCase().includes(q) || r.sub?.toLowerCase().includes(q) || r.row.barcode === search.trim());
-  }, [data, tab, search]);
+    const term = query.trim().toLowerCase();
+    if (!data || !term) return [];
+    const all = [
+      ...data.services.map((s) => ({ kind: 'SERVICE', id: s.id, name: s.name, sub: s.category?.name, pricePaise: s.pricePaise })),
+      ...data.packages.map((p) => ({ kind: 'PACKAGE', id: p.id, name: p.name, sub: p.items.map((i) => i.service.name).join(', '), pricePaise: p.pricePaise })),
+      ...data.products.map((p) => ({ kind: 'PRODUCT', id: p.id, name: p.name, sub: p.brand, barcode: p.barcode, pricePaise: p.salePricePaise })),
+      ...data.membershipPlans.map((p) => ({ kind: 'MEMBERSHIP', id: p.id, name: p.name, sub: `${p.durationDays} days`, pricePaise: p.pricePaise })),
+    ];
+    const starts = (o) => (o.name.toLowerCase().startsWith(term) ? 0 : 1);
+    return all
+      .filter((o) => o.name.toLowerCase().includes(term) || o.sub?.toLowerCase().includes(term) || o.barcode === query.trim())
+      .sort((a, b) => starts(a) - starts(b) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.name.localeCompare(b.name))
+      .slice(0, 10);
+  }, [data, query]);
 
-  const add = (option) =>
-    onAdd(newLine({ kind: tab, refId: option.id, name: option.name, catalogPaise: option.pricePaise, taxRateId: defaultTaxId(tab, option.row) }));
-
-  const addGiftCard = (e) => {
-    e.preventDefault();
-    if (!giftValue.trim()) return;
-    onAdd(newLine({ kind: 'GIFT_CARD', name: 'Gift card', price: giftValue.trim(), catalogPaise: Number(moneyInput(giftValue)) || 0 }));
-    setGiftValue('');
+  const pick = (option) => {
+    onAdd(newLine({ kind: option.kind, refId: option.id, name: option.name, catalogPaise: option.pricePaise }));
+    setQuery('');
+    setActive(0);
   };
 
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => Math.min(i + 1, options.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && options[active]) {
+      e.preventDefault();
+      pick(options[active]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  };
+
+  const showList = open && query.trim() !== '';
   return (
-    <Card>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
-        <Tabs tabs={ADD_TABS} value={tab} onChange={(value) => { setTab(value); setSearch(''); }} />
-        {tab !== 'GIFT_CARD' && (
-          <div className="relative w-full sm:w-60">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
-            <Input type="search" placeholder="Search" aria-label="Search items" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
-          </div>
+    <div className="flex flex-wrap gap-2">
+      <div className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
+        <Input
+          role="combobox"
+          aria-label="Add service, product or package"
+          aria-expanded={showList}
+          aria-controls="pos-item-options"
+          aria-autocomplete="list"
+          aria-activedescendant={showList && options[active] ? `pos-item-${active}` : undefined}
+          placeholder={catalogue.isPending ? 'Loading catalogue…' : 'Add service / product / package'}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setActive(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={onKeyDown}
+          className="pl-9"
+        />
+        {showList && (
+          <ul id="pos-item-options" role="listbox" className="absolute inset-x-0 top-full z-30 mt-1 max-h-80 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+            {catalogue.error ? (
+              <li className="px-3 py-2 text-sm text-rose-600">{catalogue.error.message}</li>
+            ) : options.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-slate-500">Nothing matches “{query.trim()}”.</li>
+            ) : (
+              options.map((option, i) => (
+                <li
+                  key={`${option.kind}:${option.id}`}
+                  id={`pos-item-${i}`}
+                  role="option"
+                  aria-selected={i === active}
+                  // mousedown + preventDefault keeps focus in the input, so the list doesn't close before the click lands.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(option);
+                  }}
+                  onMouseEnter={() => setActive(i)}
+                  className={cx('flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm', i === active && 'bg-brand-50')}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-900">{option.name}</span>
+                    <span className="block truncate text-xs text-slate-500">
+                      {ITEM_KIND_LABELS[option.kind]}{option.sub ? ` · ${option.sub}` : ''}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-slate-700 tabular-nums">{formatINR(option.pricePaise)}</span>
+                </li>
+              ))
+            )}
+          </ul>
         )}
       </div>
-      {tab === 'GIFT_CARD' ? (
-        <form onSubmit={addGiftCard} className="flex flex-wrap items-end gap-3 p-4 sm:p-5">
-          <Field label="Gift card value (₹)" hint="A code is generated when the bill is saved. Valid for one year." className="w-full sm:w-56">
-            <Input inputMode="decimal" value={giftValue} onChange={(e) => setGiftValue(e.target.value)} placeholder="e.g. 2000" />
-          </Field>
-          <Button type="submit" className="mb-5">
-            <Gift className="size-4" /> Add gift card
-          </Button>
-        </form>
-      ) : catalogue.isPending ? (
-        <Spinner className="mx-auto my-6" />
-      ) : catalogue.error ? (
-        <p className="p-5 text-sm text-rose-600">{catalogue.error.message}</p>
-      ) : options.length === 0 ? (
-        <p className="p-5 text-sm text-slate-500">{search ? 'Nothing matches.' : 'Nothing set up here yet.'}</p>
-      ) : (
-        <ul className="grid max-h-72 gap-1 overflow-y-auto p-3 sm:grid-cols-2">
-          {options.map((option) => (
-            <li key={option.id}>
-              <button
-                type="button"
-                onClick={() => add(option)}
-                className="flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-brand-50"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium text-slate-900">{option.name}</span>
-                  {option.sub && <span className="block truncate text-xs text-slate-500">{option.sub}</span>}
-                </span>
-                <span className="shrink-0 text-slate-700 tabular-nums">{formatINR(option.pricePaise)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function LineField({ label, className, children }) {
-  return (
-    <div className={cx('min-w-0', className)}>
-      <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
-      {children}
+      <Button variant="secondary" onClick={() => onAdd(newLine({ kind: 'GIFT_CARD', name: 'Gift card' }))}>
+        <Gift className="size-4" /> Gift card
+      </Button>
     </div>
   );
 }
 
-/**
- * One card per line rather than a wide table: the fields wrap two per row in a narrow column (phones, or beside
- * the checkout panel) and sit on one row once the list is wide enough. Sized by the list's width (@container),
- * not the screen's, because the list shares the screen with the checkout column on desktop.
- */
-function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, onRemove }) {
-  return (
-    <ul className="@container divide-y divide-slate-100 text-sm">
-      {lines.map((line, index) => {
-        const computed = priced?.lines[index];
-        const lineErrors = Object.entries(errors).filter(([key]) => key.startsWith(`items.${index}.`) || key === `items.${index}`);
-        const category = taxCategory(line.kind);
-        const lineTaxes = taxes.filter((t) => t.appliesTo === 'ALL' || t.appliesTo === category);
-        const priceEditable = line.kind === 'GIFT_CARD' || (canManage && !isRedemption(line));
-        const shownPrice = computed && computed.kind === line.kind ? computed.unitPricePaise : line.catalogPaise;
-        return (
-          <li key={line.key} className="px-4 py-3 sm:px-5">
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium break-words text-slate-900">{line.name}</p>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  <Badge tone={isRedemption(line) ? 'blue' : 'slate'}>{isRedemption(line) ? 'From package' : ITEM_KIND_LABELS[line.kind]}</Badge>
-                  {computed?.memberDiscount && <Badge tone="brand">Member discount</Badge>}
-                </div>
-              </div>
-              <div className="text-right whitespace-nowrap tabular-nums">
-                {computed ? (
-                  <>
-                    <span className="block font-semibold text-slate-900">{formatINR(computed.totalPaise)}</span>
-                    {computed.discountPaise > 0 && <span className="block text-xs text-emerald-700">−{formatINR(computed.discountPaise)}</span>}
-                    {computed.taxPaise > 0 && <span className="block text-xs text-slate-500">incl. tax {formatINR(computed.taxPaise)}</span>}
-                  </>
-                ) : (
-                  <span className="text-slate-400">—</span>
-                )}
-              </div>
-              <Button variant="ghost" size="icon" className="-mt-1 -mr-2 shrink-0" onClick={() => onRemove(line.key)} aria-label={`Remove ${line.name}`}>
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
+const ROW_COLUMNS = '@2xl:grid-cols-[minmax(0,1.6fr)_minmax(7.5rem,1.4fr)_3.5rem_6.5rem_5.5rem_6rem_2rem]';
 
-            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 @xl:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.2fr)]">
-              <LineField label="Staff">
+function FieldLabel({ children }) {
+  return <span className="mb-1 block text-xs font-medium text-slate-500 @2xl:sr-only">{children}</span>;
+}
+
+/**
+ * Item rows. A table-like row once the form is wide enough; below that each row wraps into a small card with
+ * labelled fields. Sized by the form's width (@container), since the form shares the screen with the client panel.
+ */
+function LineItems({ lines, priced, staff, errors, canManage, onChange, onRemove, adder }) {
+  return (
+    <div className="@container border-t border-slate-100">
+      <div className={cx('hidden gap-3 bg-slate-50 px-5 py-2 text-xs font-semibold tracking-wide text-slate-500 uppercase @2xl:grid', ROW_COLUMNS)}>
+        <span>Service / product</span>
+        <span>Staff</span>
+        <span>Qty</span>
+        <span>Discount</span>
+        <span>Price (₹)</span>
+        <span className="text-right">Amount</span>
+        <span className="sr-only">Remove</span>
+      </div>
+
+      <ul className="divide-y divide-slate-100 text-sm">
+        {lines.map((line, index) => {
+          const computed = priced?.lines[index];
+          const lineErrors = Object.entries(errors).filter(([key]) => key.startsWith(`items.${index}.`) || key === `items.${index}`);
+          const priceEditable = line.kind === 'GIFT_CARD' || (canManage && !isRedemption(line));
+          const shownPrice = computed && computed.kind === line.kind ? computed.unitPricePaise : line.catalogPaise;
+          const remove = (className) => (
+            <Button variant="ghost" size="icon" className={className} onClick={() => onRemove(line.key)} aria-label={`Remove ${line.name}`}>
+              <Trash2 className="size-3.5" />
+            </Button>
+          );
+          return (
+            <li key={line.key} className={cx('grid grid-cols-2 gap-x-3 gap-y-2 px-4 py-3 sm:px-5 @2xl:items-center @2xl:py-2', ROW_COLUMNS)}>
+              <div className="col-span-2 flex items-start gap-2 @2xl:col-span-1">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium break-words text-slate-900">{line.name}</p>
+                  {(isRedemption(line) || line.kind !== 'SERVICE' || computed?.memberDiscount) && (
+                    <div className="mt-0.5 flex flex-wrap gap-1">
+                      {(isRedemption(line) || line.kind !== 'SERVICE') && (
+                        <Badge tone={isRedemption(line) ? 'blue' : 'slate'}>{isRedemption(line) ? 'From package' : ITEM_KIND_LABELS[line.kind]}</Badge>
+                      )}
+                      {computed?.memberDiscount && <Badge tone="brand">Member price</Badge>}
+                    </div>
+                  )}
+                </div>
+                {remove('-mt-1 -mr-2 shrink-0 @2xl:hidden')}
+              </div>
+
+              <div className="min-w-0">
+                <FieldLabel>Staff</FieldLabel>
                 {line.kind === 'GIFT_CARD' ? (
                   <span className="block py-2 text-slate-400">—</span>
                 ) : (
@@ -452,8 +477,9 @@ function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, o
                     ))}
                   </Select>
                 )}
-              </LineField>
-              <LineField label="Qty">
+              </div>
+              <div className="min-w-0">
+                <FieldLabel>Qty</FieldLabel>
                 <Input
                   aria-label="Quantity"
                   type="number"
@@ -463,21 +489,9 @@ function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, o
                   value={line.qty}
                   onChange={(e) => onChange(line.key, { qty: e.target.value })}
                 />
-              </LineField>
-              <LineField label="Price (₹)">
-                {priceEditable ? (
-                  <Input
-                    aria-label="Unit price"
-                    inputMode="decimal"
-                    placeholder={paiseToRupees(shownPrice)}
-                    value={line.price}
-                    onChange={(e) => onChange(line.key, { price: e.target.value })}
-                  />
-                ) : (
-                  <span className="block py-2 tabular-nums">{formatINR(isRedemption(line) ? 0 : shownPrice)}</span>
-                )}
-              </LineField>
-              <LineField label="Discount">
+              </div>
+              <div className="min-w-0">
+                <FieldLabel>Discount</FieldLabel>
                 {fixedLine(line) ? (
                   <span className="block py-2 text-slate-400">—</span>
                 ) : (
@@ -485,6 +499,7 @@ function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, o
                     <Input
                       aria-label="Discount"
                       inputMode="decimal"
+                      placeholder="0"
                       value={line.discount}
                       onChange={(e) => onChange(line.key, { discount: e.target.value })}
                       className="min-w-0 rounded-r-none"
@@ -493,164 +508,160 @@ function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, o
                       type="button"
                       title="Switch between percent and rupees"
                       onClick={() => onChange(line.key, { discountType: line.discountType === 'PERCENT' ? 'FLAT' : 'PERCENT' })}
-                      className="rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                      className="rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
                     >
                       {line.discountType === 'PERCENT' ? '%' : '₹'}
                     </button>
                   </div>
                 )}
-              </LineField>
-              <LineField label="Tax" className="col-span-2 @xl:col-span-1">
-                {fixedLine(line) ? (
-                  <span className="block py-2 text-slate-400">No tax</span>
+              </div>
+              <div className="min-w-0">
+                <FieldLabel>Price (₹)</FieldLabel>
+                {priceEditable ? (
+                  <Input
+                    aria-label={line.kind === 'GIFT_CARD' ? 'Gift card value' : 'Unit price'}
+                    inputMode="decimal"
+                    placeholder={line.kind === 'GIFT_CARD' ? 'Value' : paiseToRupees(shownPrice)}
+                    value={line.price}
+                    onChange={(e) => onChange(line.key, { price: e.target.value })}
+                  />
                 ) : (
-                  <Select aria-label="Tax" value={line.taxRateId} onChange={(e) => onChange(line.key, { taxRateId: e.target.value })}>
-                    <option value="">No tax</option>
-                    {lineTaxes.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </Select>
+                  <span className="block py-2 tabular-nums">{formatINR(isRedemption(line) ? 0 : shownPrice)}</span>
                 )}
-              </LineField>
-            </div>
+              </div>
+              <div className="col-span-2 flex items-baseline justify-between gap-2 @2xl:col-span-1 @2xl:block @2xl:text-right">
+                <FieldLabel>Amount</FieldLabel>
+                {computed ? (
+                  <span className="tabular-nums">
+                    <span className="font-semibold text-slate-900">{formatINR(computed.totalPaise)}</span>
+                    {computed.discountPaise > 0 && <span className="block text-xs text-emerald-700">−{formatINR(computed.discountPaise)}</span>}
+                  </span>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </div>
+              <div className="hidden @2xl:block">{remove('')}</div>
 
-            {lineErrors.map(([key, message]) => (
-              <p key={key} role="alert" className="mt-2 text-xs text-rose-600">{message}</p>
-            ))}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
+              {lineErrors.map(([key, message]) => (
+                <p key={key} role="alert" className="col-span-full text-xs text-rose-600">{message}</p>
+              ))}
+            </li>
+          );
+        })}
 
-function AccountPanel({ clientId, onRedeem, lines }) {
-  const account = useClientAccount(clientId);
-  const a = account.data;
-  if (account.isPending) return <Card className="p-4"><Spinner className="mx-auto" /></Card>;
-  if (account.error) return <Card className="p-4 text-sm text-rose-600">{account.error.message}</Card>;
-
-  const inBill = (cpiId) => lines.filter((l) => l.clientPackageItemId === cpiId).reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
-  return (
-    <Card className="space-y-3 p-4 text-sm">
-      <div className="grid grid-cols-2 gap-3">
-        <Stat label="Wallet" value={formatINR(a.walletBalancePaise)} />
-        <Stat label="Points" value={a.pointsBalance} />
-        {a.duePaise > 0 && <Stat label="Previous dues" value={formatINR(a.duePaise)} tone="text-rose-600" />}
-      </div>
-      {a.membership && (
-        <p className="rounded-lg bg-brand-50 px-3 py-2 text-brand-800">
-          <span className="font-medium">{a.membership.name}</span> member until {formatDate(a.membership.endsOn)}
-        </p>
-      )}
-      {a.packages.map((pkg) => (
-        <div key={pkg.id} className="rounded-lg border border-slate-200 p-3">
-          <p className="font-medium text-slate-900">{pkg.name}</p>
-          <p className="mb-2 text-xs text-slate-500">Expires {formatDate(pkg.expiresOn)}</p>
-          <ul className="space-y-1">
-            {pkg.items.map((item) => {
-              const left = item.totalQty - item.usedQty - inBill(item.clientPackageItemId);
-              return (
-                <li key={item.clientPackageItemId} className="flex items-center justify-between gap-2">
-                  <span>{item.serviceName} <span className="text-slate-500">· {left} left</span></span>
-                  <Button size="sm" variant="secondary" disabled={left <= 0} onClick={() => onRedeem(pkg, item)}>Redeem</Button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-      {a.giftCards.length > 0 && (
-        <p className="text-xs text-slate-500">
-          Gift cards: {a.giftCards.map((g) => `${g.code} (${formatINR(g.balancePaise)})`).join(', ')}
-        </p>
-      )}
-    </Card>
-  );
-}
-
-function Stat({ label, value, tone = 'text-slate-900' }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={cx('font-semibold tabular-nums', tone)}>{value}</p>
+        <li className="px-4 py-3 sm:px-5">
+          {adder}
+          {lines.length === 0 && <p className="mt-2 text-xs text-slate-500">Type a service, product or package name to add it to the bill.</p>}
+        </li>
+      </ul>
     </div>
   );
 }
 
-function DiscountsPanel({ state, set, errors, priced }) {
+/** A label on the left, its value or control on the right — the bill's totals and payment rows. */
+function Row({ label, hint, children, className }) {
+  return (
+    <div className={cx('flex items-start justify-between gap-3 py-2', className)}>
+      <div className="min-w-0 pt-0.5">
+        <p>{label}</p>
+        {hint && <p className="text-xs font-normal text-slate-500">{hint}</p>}
+      </div>
+      <div className="flex min-w-0 shrink-0 justify-end text-right tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+function Summary({ className, state, set, priced, fetching, previewError, errors, paymentRows, taxRates }) {
+  const ready = Boolean(state.client && state.lines.length);
+  const money = (paise) => (priced ? formatINR(paise) : '—');
   const pointValue = priced?.pointValue;
+  const fieldError = (key) => errors[key] && <p className="pb-1 text-right text-xs text-rose-600">{errors[key]}</p>;
+
   return (
-    <div className="space-y-3">
-      <Field label="Coupon" error={errors.couponCode} as="div">
-        <div className="flex gap-2">
-          <Input
-            aria-label="Coupon code"
-            value={state.couponInput}
-            invalid={!!errors.couponCode}
-            onChange={(e) => set({ couponInput: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') set({ couponCode: state.couponInput.trim().toUpperCase() });
-            }}
-            className="uppercase"
-          />
-          {state.couponCode ? (
-            <Button variant="secondary" onClick={() => set({ couponCode: '', couponInput: '' })}>Remove</Button>
-          ) : (
-            <Button variant="secondary" onClick={() => set({ couponCode: state.couponInput.trim().toUpperCase() })} disabled={!state.couponInput.trim()}>
-              Apply
-            </Button>
-          )}
-        </div>
-        {priced?.coupon && <span className="mt-1 block text-xs text-emerald-700">{priced.coupon.code} applied: −{formatINR(priced.couponDiscountPaise)}</span>}
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label="Redeem points"
-          error={errors.redeemPoints}
-          hint={priced ? `${priced.pointsBalance} available${pointValue ? ` · ${pointValue.points} = ${formatINR(pointValue.valuePaise)}` : ''}` : undefined}
-        >
-          <Input type="number" min={0} value={state.redeemPoints} invalid={!!errors.redeemPoints} onChange={(e) => set({ redeemPoints: e.target.value })} />
-        </Field>
-        <Field label="Extra discount (₹)" error={errors.manualDiscountPaise}>
-          <Input inputMode="decimal" value={state.manualDiscount} invalid={!!errors.manualDiscountPaise} onChange={(e) => set({ manualDiscount: e.target.value })} />
-        </Field>
+    <div className={cx('text-sm text-slate-700', className)}>
+      <div className={cx('divide-y divide-slate-100 transition-opacity', fetching && 'opacity-60')}>
+        <Row label="Subtotal">{money(priced?.subtotalPaise)}</Row>
+        {priced?.discountPaise > 0 && (
+          <Row label="Discounts" className="text-emerald-700">−{formatINR(priced.discountPaise)}</Row>
+        )}
+
+        <Row label="Coupon" hint={priced?.coupon ? `${priced.coupon.code}: −${formatINR(priced.couponDiscountPaise)}` : undefined}>
+          <div className="flex w-44 gap-1.5">
+            <Input
+              aria-label="Coupon code"
+              value={state.couponInput}
+              invalid={!!errors.couponCode}
+              onChange={(e) => set({ couponInput: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && set({ couponCode: state.couponInput.trim().toUpperCase() })}
+              className="min-w-0 uppercase"
+            />
+            {state.couponCode ? (
+              <Button variant="secondary" size="sm" onClick={() => set({ couponCode: '', couponInput: '' })}>Remove</Button>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={() => set({ couponCode: state.couponInput.trim().toUpperCase() })} disabled={!state.couponInput.trim()}>
+                Apply
+              </Button>
+            )}
+          </div>
+        </Row>
+        {fieldError('couponCode')}
+
+        {/* Inputs are w-full by default, so sizes go on wrappers. */}
+        <Row label="Discount (₹)">
+          <div className="w-28">
+            <Input aria-label="Extra discount" inputMode="decimal" placeholder="0" value={state.manualDiscount} invalid={!!errors.manualDiscountPaise} onChange={(e) => set({ manualDiscount: e.target.value })} className="text-right" />
+          </div>
+        </Row>
+        {fieldError('manualDiscountPaise')}
+
+        {priced?.pointsBalance > 0 && (
+          <>
+            <Row
+              label="Redeem points"
+              hint={`${priced.pointsBalance} available${pointValue ? ` · ${pointValue.points} = ${formatINR(pointValue.valuePaise)}` : ''}`}
+            >
+              <div className="w-28">
+                <Input aria-label="Redeem points" type="number" min={0} placeholder="0" value={state.redeemPoints} invalid={!!errors.redeemPoints} onChange={(e) => set({ redeemPoints: e.target.value })} className="text-right" />
+              </div>
+            </Row>
+            {fieldError('redeemPoints')}
+          </>
+        )}
+
+        <Row label="Taxes" hint={priced?.taxPaise > 0 ? `GST ${formatINR(priced.taxPaise)}` : undefined}>
+          <div className="w-32">
+            <Select aria-label="Taxes" value={state.taxRate ?? ''} onChange={(e) => set({ taxRate: e.target.value })}>
+              <option value="">No tax</option>
+              {taxRates.map((rate) => (
+                <option key={rate} value={String(rate)}>GST {rate}%</option>
+              ))}
+            </Select>
+          </div>
+        </Row>
+
+        {priced?.roundOffPaise !== 0 && priced && <Row label="Round off">{formatINR(priced.roundOffPaise)}</Row>}
+        <Row label="Total" className="text-base font-semibold text-slate-900">{money(priced?.totalPaise)}</Row>
+        {priced?.advancePaise > 0 && <Row label="Advance received">−{formatINR(priced.advancePaise)}</Row>}
       </div>
+
+      <Payments state={state} set={set} priced={priced} errors={errors} paymentRows={paymentRows} />
+
+      <div className="divide-y divide-slate-100 border-t border-slate-100">
+        <Row label="Amount due" className={cx('font-medium', priced?.duePaise > 0 ? 'text-amber-700' : 'text-slate-900')}>{money(priced?.duePaise)}</Row>
+      </div>
+      {priced?.pointsEarned > 0 && <p className="text-right text-xs text-slate-500">Client earns {priced.pointsEarned} points.</p>}
+      {!ready && <p className="pt-1 text-right text-xs text-slate-500">Pick a client and add items to see the total.</p>}
+      {ready && !priced && previewError && <p className="pt-1 text-right text-xs text-rose-600">{previewError.message}</p>}
     </div>
   );
 }
 
-function Totals({ priced, fetching, ready, error }) {
-  if (!ready) return <p className="text-sm text-slate-500">Pick a client and add items to see the total.</p>;
-  if (!priced) {
-    return error ? <p className="text-sm text-rose-600">{error.message}</p> : <Spinner className="mx-auto" />;
-  }
-  const row = (label, value, className) => (
-    <div className={cx('flex justify-between gap-3', className)}>
-      <dt>{label}</dt>
-      <dd className="tabular-nums">{value}</dd>
-    </div>
-  );
-  return (
-    <dl className={cx('space-y-1.5 text-sm text-slate-700 transition-opacity', fetching && 'opacity-60')}>
-      {row('Subtotal', formatINR(priced.subtotalPaise))}
-      {priced.discountPaise > 0 && row('Discounts', `−${formatINR(priced.discountPaise)}`, 'text-emerald-700')}
-      {priced.couponDiscountPaise > 0 && row(<span className="pl-3 text-xs">Coupon</span>, <span className="text-xs">−{formatINR(priced.couponDiscountPaise)}</span>)}
-      {priced.pointsDiscountPaise > 0 && row(<span className="pl-3 text-xs">{priced.pointsRedeemed} points</span>, <span className="text-xs">−{formatINR(priced.pointsDiscountPaise)}</span>)}
-      {priced.manualDiscountPaise > 0 && row(<span className="pl-3 text-xs">Extra</span>, <span className="text-xs">−{formatINR(priced.manualDiscountPaise)}</span>)}
-      {priced.taxPaise > 0 && row('Tax (GST)', formatINR(priced.taxPaise))}
-      {priced.roundOffPaise !== 0 && row('Round off', formatINR(priced.roundOffPaise))}
-      {row('Total', formatINR(priced.totalPaise), 'border-t border-slate-200 pt-2 text-base font-semibold text-slate-900')}
-      {priced.advancePaise > 0 && row('Advance paid', `−${formatINR(priced.advancePaise)}`)}
-      {row('Balance due', formatINR(priced.duePaise), priced.duePaise > 0 ? 'font-medium text-amber-700' : 'text-emerald-700')}
-      {priced.pointsEarned > 0 && <p className="pt-1 text-xs text-slate-500">Client earns {priced.pointsEarned} points.</p>}
-      {error && <p className="text-xs text-rose-600">{error.message}</p>}
-    </dl>
-  );
-}
-
-function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }) {
+function Payments({ state, set, priced, errors, paymentRows }) {
   const update = (key, patch) => set((s) => ({ payments: s.payments.map((p) => (p.key === key ? { ...p, ...patch } : p)) }));
+  const errorOf = (row, name) => {
+    const index = paymentRows.indexOf(row);
+    return index >= 0 ? errors[`payments.${index}.${name}`] : undefined;
+  };
   const payBalance = (key) => {
     if (!priced) return;
     const others = state.payments.filter((p) => p.key !== key).reduce((sum, p) => sum + (Number(moneyInput(p.amount)) || 0), 0);
@@ -658,29 +669,31 @@ function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 border-t border-slate-100 py-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900">Payment</h3>
+        <p>Amount paid</p>
         <Button size="sm" variant="ghost" onClick={() => set((s) => ({ payments: [...s.payments, newPayment('UPI')] }))}>
           <Plus className="size-3.5" /> Split
         </Button>
       </div>
       {state.payments.map((p) => (
-        <div key={p.key} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
-          <div className="flex gap-2">
-            <Select aria-label="Payment method" value={p.method} onChange={(e) => update(p.key, { method: e.target.value })} className="w-32 shrink-0 sm:w-36">
-              {PAYMENT_METHODS.map((m) => (
-                <option key={m} value={m}>{METHOD_LABELS[m]}</option>
-              ))}
-            </Select>
+        <div key={p.key} className="space-y-1.5">
+          <div className="flex gap-1.5">
+            <div className="w-32 shrink-0">
+              <Select aria-label="Payment method" value={p.method} onChange={(e) => update(p.key, { method: e.target.value })}>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{METHOD_LABELS[m]}</option>
+                ))}
+              </Select>
+            </div>
             <Input
               aria-label="Amount (₹)"
               inputMode="decimal"
               placeholder="Amount ₹"
               value={p.amount}
-              invalid={!!paymentError(p, 'amountPaise')}
+              invalid={!!errorOf(p, 'amountPaise')}
               onChange={(e) => update(p.key, { amount: e.target.value })}
-              className="min-w-0"
+              className="min-w-0 text-right"
             />
             {state.payments.length > 1 && (
               <Button variant="ghost" size="icon" aria-label="Remove payment" onClick={() => set((s) => ({ payments: s.payments.filter((x) => x.key !== p.key) }))}>
@@ -691,17 +704,17 @@ function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }
           {needsReference(p.method) && (
             <Input
               aria-label="Reference"
-              placeholder={p.method === 'GIFT_CARD' ? 'Gift card code' : 'Reference / transaction id'}
+              placeholder={p.method === 'GIFT_CARD' ? 'Gift card code' : 'Transaction id'}
               value={p.reference}
-              invalid={!!paymentError(p, 'reference')}
+              invalid={!!errorOf(p, 'reference')}
               onChange={(e) => update(p.key, { reference: e.target.value })}
             />
           )}
-          {[paymentError(p, 'amountPaise'), paymentError(p, 'reference'), paymentError(p, 'method')].filter(Boolean).map((message) => (
+          {[errorOf(p, 'amountPaise'), errorOf(p, 'reference'), errorOf(p, 'method')].filter(Boolean).map((message) => (
             <p key={message} role="alert" className="text-xs text-rose-600">{message}</p>
           ))}
           <button type="button" className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-50" disabled={!priced} onClick={() => payBalance(p.key)}>
-            Pay balance
+            Pay full balance
           </button>
         </div>
       ))}
@@ -710,6 +723,73 @@ function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }
         <p className="text-xs text-amber-700">No payment entered: the full amount will be recorded as due.</p>
       )}
     </div>
+  );
+}
+
+/** Everything about the client that matters at the counter, plus their packages to redeem. */
+function Client360({ client, onRedeem, lines }) {
+  const account = useClientAccount(client?.id);
+  const a = account.data;
+  const inBill = (cpiId) => lines.filter((l) => l.clientPackageItemId === cpiId).reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
+  const row = (label, value, tone) => (
+    <div className="flex justify-between gap-3 py-2">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={cx('text-right font-medium tabular-nums', tone ?? 'text-slate-900')}>{value}</dd>
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader title="Client 360° view" />
+      {!client ? (
+        <div className="flex flex-col items-center gap-2 px-5 py-8 text-center text-sm text-slate-500">
+          <UserRound className="size-8 text-slate-300" aria-hidden />
+          Pick a client to see their visits, wallet, points and packages.
+        </div>
+      ) : account.isPending ? (
+        <Spinner className="mx-auto my-6" />
+      ) : account.error ? (
+        <p className="p-5 text-sm text-rose-600">{account.error.message}</p>
+      ) : (
+        <div className="px-5 pb-4 text-sm">
+          <dl className="divide-y divide-slate-100">
+            {row('Last visit', a.lastVisitAt ? formatDateTime(a.lastVisitAt) : '—')}
+            {row('Total visits', a.visits)}
+            {row('Total spent', formatINR(a.totalSpentPaise))}
+            {row('Wallet', formatINR(a.walletBalancePaise))}
+            {row('Reward points', a.pointsBalance)}
+            {a.duePaise > 0 && row('Pending dues', formatINR(a.duePaise), 'text-rose-600')}
+            {row('Membership', a.membership ? `${a.membership.name} · till ${formatDate(a.membership.endsOn)}` : '—')}
+          </dl>
+
+          {a.packages.length > 0 && (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Active packages</p>
+              {a.packages.map((pkg) => (
+                <div key={pkg.id} className="rounded-lg border border-slate-200 p-3">
+                  <p className="font-medium text-slate-900">{pkg.name}</p>
+                  <p className="mb-2 text-xs text-slate-500">Expires {formatDate(pkg.expiresOn)}</p>
+                  <ul className="space-y-1">
+                    {pkg.items.map((item) => {
+                      const left = item.totalQty - item.usedQty - inBill(item.clientPackageItemId);
+                      return (
+                        <li key={item.clientPackageItemId} className="flex items-center justify-between gap-2">
+                          <span className="min-w-0">{item.serviceName} <span className="text-slate-500">· {left} left</span></span>
+                          <Button size="sm" variant="secondary" disabled={left <= 0} onClick={() => onRedeem(pkg, item)}>Redeem</Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+          {a.giftCards.length > 0 && (
+            <p className="mt-2 text-xs text-slate-500">Gift cards: {a.giftCards.map((g) => `${g.code} (${formatINR(g.balancePaise)})`).join(', ')}</p>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 
