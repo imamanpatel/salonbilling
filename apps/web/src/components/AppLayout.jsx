@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router';
+import { Link, matchPath, NavLink, Outlet, useLocation } from 'react-router';
 import {
-  Building2, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, Scissors, Settings, ShieldCheck, UserCog, UserPlus, Users, X,
+  Building2, ChevronDown, KeyRound, LayoutDashboard, ListChecks, LogOut, Menu, Scissors, Settings, ShieldCheck, UserCog, UserPlus, Users, X,
 } from 'lucide-react';
 import { ROLES } from '@salon/shared';
 import { useAuth } from '../lib/auth.jsx';
@@ -11,8 +11,10 @@ import { Button, cx, Select } from './ui.jsx';
 
 const MANAGERS = [ROLES.SUPERADMIN, ROLES.ADMIN];
 
-// Sidebar groups in display order. Feature modules add items to these groups (see src/modules.js).
+// Menu groups in display order. Feature modules add items to these groups (see src/modules.js).
 const GROUPS = ['', 'Front desk', 'Catalogue', 'Inventory', 'Team', 'Business', 'Admin'];
+// Shown as direct links in the top menu when there is room; every other group is a dropdown.
+const DIRECT_GROUP = 'Front desk';
 
 const CORE_NAV = [
   { group: '', to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, order: 0 },
@@ -34,7 +36,74 @@ function navFor(role) {
   })).filter((group) => group.items.length > 0);
 }
 
-function Sidebar({ role }) {
+const topLinkClass = ({ isActive }) =>
+  cx(
+    'rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
+    isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+  );
+
+/** Dropdown in the top menu. A <details> element, closed on outside click and route change by AppLayout. */
+function NavMenu({ title, items, pathname }) {
+  const active = items.some((item) => matchPath({ path: item.to, end: Boolean(item.end) }, pathname));
+  return (
+    <details className="group relative">
+      <summary
+        className={cx(
+          'flex cursor-pointer list-none items-center gap-1 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors [&::-webkit-details-marker]:hidden',
+          active ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+        )}
+      >
+        {title}
+        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="absolute left-0 z-40 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        {items.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              cx('flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm', isActive ? 'bg-brand-50 font-medium text-brand-700' : 'text-slate-700 hover:bg-slate-100')
+            }
+          >
+            <item.icon className="size-4 text-slate-400" aria-hidden />
+            {item.label}
+          </NavLink>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/** Desktop menu bar. The front-desk pages are direct links on wide screens and a dropdown on narrower ones. */
+function TopNav({ role }) {
+  const { pathname } = useLocation();
+  return (
+    <nav className="flex h-12 items-center gap-0.5" aria-label="Main">
+      {navFor(role).map((group) => {
+        if (!group.title) {
+          return group.items.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={topLinkClass}>{item.label}</NavLink>
+          ));
+        }
+        const menu = <NavMenu key={group.title} title={group.title} items={group.items} pathname={pathname} />;
+        if (group.title !== DIRECT_GROUP) return menu;
+        return [
+          <div key="direct" className="hidden items-center gap-0.5 xl:flex">
+            {group.items.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.end} className={topLinkClass}>{item.label}</NavLink>
+            ))}
+            <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
+          </div>,
+          <div key="menu" className="xl:hidden">{menu}</div>,
+        ];
+      })}
+    </nav>
+  );
+}
+
+/** Phone/tablet drawer: every page, grouped. */
+function DrawerNav({ role }) {
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Main">
       {navFor(role).map((group) => (
@@ -77,7 +146,7 @@ function UserMenu() {
           <span className="block text-xs leading-tight text-slate-500">{ROLE_LABELS[user.role]}</span>
         </span>
       </summary>
-      <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+      <div className="absolute right-0 z-40 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
         <Link to="/account" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
           <KeyRound className="size-4" aria-hidden /> Account & password
         </Link>
@@ -89,6 +158,11 @@ function UserMenu() {
   );
 }
 
+const closeMenus = (except) =>
+  document.querySelectorAll('details[open]').forEach((el) => {
+    if (!except || !el.contains(except)) el.removeAttribute('open');
+  });
+
 export default function AppLayout() {
   const { user, organization, branches, branchId, switchBranch } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -96,61 +170,79 @@ export default function AppLayout() {
 
   useEffect(() => {
     setMobileOpen(false);
-    document.querySelectorAll('details[open]').forEach((el) => el.removeAttribute('open'));
+    closeMenus();
   }, [location.pathname]);
 
+  // Dropdowns close on a click elsewhere (which also closes the previous one when another opens) and on Escape.
+  useEffect(() => {
+    const onPointer = (e) => closeMenus(e.target);
+    const onKey = (e) => e.key === 'Escape' && closeMenus();
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
   const brand = (
-    <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5">
-      <span className="grid size-8 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">S</span>
-      <div className="min-w-0">
-        <p className="text-sm leading-tight font-semibold text-slate-900">Sabilling</p>
-        <p className="truncate text-xs leading-tight text-slate-500">{organization?.name}</p>
-      </div>
-    </div>
+    <Link to="/" className="flex min-w-0 items-center gap-2">
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm font-bold text-white">S</span>
+      <span className="hidden min-w-0 sm:block">
+        <span className="block text-sm leading-tight font-semibold text-slate-900">Sabilling</span>
+        <span className="block truncate text-xs leading-tight text-slate-500">{organization?.name}</span>
+      </span>
+    </Link>
   );
+  const container = 'mx-auto max-w-7xl px-4 sm:px-6 lg:px-8';
 
   return (
-    <div className="min-h-screen lg:pl-64">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
-        {brand}
-        <Sidebar role={user.role} />
-      </aside>
-
+    <div className="min-h-screen">
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setMobileOpen(false)} aria-hidden />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
-            <div className="relative">
+            <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
               {brand}
-              <Button variant="ghost" size="icon" className="absolute top-4 right-3" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+              <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} aria-label="Close menu">
                 <X className="size-4" />
               </Button>
             </div>
-            <Sidebar role={user.role} />
+            <DrawerNav role={user.role} />
           </aside>
         </div>
       )}
 
-      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
-        <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
-          <Menu className="size-5" />
-        </Button>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Building2 className="hidden size-4 text-slate-400 sm:block" aria-hidden />
-          {branches.length > 1 ? (
-            <Select aria-label="Branch" value={branchId ?? ''} onChange={(e) => switchBranch(e.target.value)} className="sm:w-auto sm:max-w-56">
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </Select>
-          ) : (
-            <span className="truncate text-sm font-medium text-slate-700">{branches[0]?.name ?? 'No branch'}</span>
-          )}
+      {/* Phones: this bar stays on screen. Desktop: it scrolls away and the menu bar below stays. */}
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur lg:static lg:bg-white">
+        <div className={cx(container, 'flex h-14 items-center gap-3')}>
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+            <Menu className="size-5" />
+          </Button>
+          {brand}
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            <Building2 className="hidden size-4 text-slate-400 sm:block" aria-hidden />
+            {branches.length > 1 ? (
+              <Select aria-label="Branch" value={branchId ?? ''} onChange={(e) => switchBranch(e.target.value)} className="min-w-0 sm:w-auto sm:max-w-56">
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </Select>
+            ) : (
+              <span className="truncate text-sm font-medium text-slate-700">{branches[0]?.name ?? 'No branch'}</span>
+            )}
+          </div>
+          <UserMenu />
         </div>
-        <UserMenu />
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="sticky top-0 z-30 hidden border-b border-slate-200 bg-white/95 backdrop-blur lg:block">
+        <div className={container}>
+          <TopNav role={user.role} />
+        </div>
+      </div>
+
+      <main className={cx(container, 'py-6')}>
         {branchId ? (
           <Outlet />
         ) : (

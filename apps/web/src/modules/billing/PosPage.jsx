@@ -280,7 +280,8 @@ export default function PosPage() {
           </div>
         </Card>
 
-        <div className="lg:sticky lg:top-20">
+        {/* Below the 3rem sticky menu bar. */}
+        <div className="lg:sticky lg:top-16">
           <Client360 client={state.client} onRedeem={redeem} lines={state.lines} />
         </div>
       </div>
@@ -428,7 +429,7 @@ function LineItems({ lines, priced, staff, errors, canManage, onChange, onRemove
   return (
     <div className="@container border-t border-slate-100">
       <div className={cx('hidden gap-3 bg-slate-50 px-5 py-2 text-xs font-semibold tracking-wide text-slate-500 uppercase @2xl:grid', ROW_COLUMNS)}>
-        <span>Service / product</span>
+        <span>Item</span>
         <span>Staff</span>
         <span>Qty</span>
         <span>Discount</span>
