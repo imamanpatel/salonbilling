@@ -209,8 +209,11 @@ export default function PosPage() {
       payments: s.payments.filter((p) => p.method !== 'WALLET'),
     }));
 
+  const canSubmit = Boolean(state.client && state.lines.length);
+
   return (
-    <>
+    // Bottom padding below lg keeps the last card clear of the fixed checkout bar.
+    <div className="pb-24 lg:pb-0">
       <PageHeader
         title="New bill"
         description="Pick the client, add what they had, take payment."
@@ -231,7 +234,7 @@ export default function PosPage() {
       )}
       {errors.appointmentId && <p className="mb-4 text-sm text-rose-600">{errors.appointmentId}</p>}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <div className="space-y-6">
           <Card>
             <CardHeader title="Client" />
@@ -248,7 +251,7 @@ export default function PosPage() {
             {state.lines.length === 0 ? (
               <EmptyState icon={Receipt} title="Add services or products" description="Use the tabs above, or redeem a package from the client's account." />
             ) : (
-              <LinesTable
+              <LineItems
                 lines={state.lines}
                 priced={priced}
                 taxes={taxes}
@@ -283,13 +286,27 @@ export default function PosPage() {
               checked={state.sendReceipt}
               onChange={(e) => set({ sendReceipt: e.target.checked })}
             />
-            <Button className="w-full" onClick={submit} loading={create.isPending} disabled={!state.client || !state.lines.length}>
+            <Button className="hidden w-full lg:inline-flex" onClick={submit} loading={create.isPending} disabled={!canSubmit}>
               Create bill{priced ? ` · ${formatINR(priced.totalPaise)}` : ''}
             </Button>
           </Card>
         </div>
       </div>
-    </>
+
+      {/* Phones and tablets: total and the create button stay in reach while scrolling the long form. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-3 border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgb(15_23_42/0.06)] backdrop-blur lg:hidden">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-slate-500">Total</p>
+          <p className="truncate text-lg font-semibold text-slate-900 tabular-nums">
+            {priced ? formatINR(priced.totalPaise) : '—'}
+            {priced?.duePaise > 0 && <span className="ml-1.5 text-sm font-medium text-amber-700">· due {formatINR(priced.duePaise)}</span>}
+          </p>
+        </div>
+        <Button onClick={submit} loading={create.isPending} disabled={!canSubmit}>
+          Create bill
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -336,8 +353,8 @@ function ItemAdder({ catalogue, onAdd, defaultTaxId }) {
         )}
       </div>
       {tab === 'GIFT_CARD' ? (
-        <form onSubmit={addGiftCard} className="flex flex-wrap items-end gap-3 p-5">
-          <Field label="Gift card value (₹)" hint="A code is generated when the bill is saved. Valid for one year." className="w-56">
+        <form onSubmit={addGiftCard} className="flex flex-wrap items-end gap-3 p-4 sm:p-5">
+          <Field label="Gift card value (₹)" hint="A code is generated when the bill is saved. Valid for one year." className="w-full sm:w-56">
             <Input inputMode="decimal" value={giftValue} onChange={(e) => setGiftValue(e.target.value)} placeholder="e.g. 2000" />
           </Field>
           <Button type="submit" className="mb-5">
@@ -373,136 +390,137 @@ function ItemAdder({ catalogue, onAdd, defaultTaxId }) {
   );
 }
 
-function LinesTable({ lines, priced, taxes, staff, errors, canManage, onChange, onRemove }) {
+function LineField({ label, className, children }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
-          <tr>
-            <th className="px-3 py-2">Item</th>
-            <th className="px-3 py-2">Staff</th>
-            <th className="px-3 py-2">Qty</th>
-            <th className="px-3 py-2">Price (₹)</th>
-            <th className="px-3 py-2">Discount</th>
-            <th className="px-3 py-2">Tax</th>
-            <th className="px-3 py-2 text-right">Total</th>
-            <th className="px-3 py-2"><span className="sr-only">Remove</span></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {lines.map((line, index) => {
-            const computed = priced?.lines[index];
-            const lineErrors = Object.entries(errors).filter(([key]) => key.startsWith(`items.${index}.`) || key === `items.${index}`);
-            const category = taxCategory(line.kind);
-            const lineTaxes = taxes.filter((t) => t.appliesTo === 'ALL' || t.appliesTo === category);
-            const priceEditable = line.kind === 'GIFT_CARD' || (canManage && !isRedemption(line));
-            const shownPrice = computed && computed.kind === line.kind ? computed.unitPricePaise : line.catalogPaise;
-            return (
-              <tr key={line.key} className="align-top">
-                <td className="px-3 py-2">
-                  <div className="font-medium text-slate-900">{line.name}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-1">
-                    <Badge tone={isRedemption(line) ? 'blue' : 'slate'}>{isRedemption(line) ? 'From package' : ITEM_KIND_LABELS[line.kind]}</Badge>
-                    {computed?.memberDiscount && <Badge tone="brand">Member discount</Badge>}
-                  </div>
-                  {lineErrors.map(([key, message]) => (
-                    <p key={key} role="alert" className="mt-1 text-xs text-rose-600">{message}</p>
-                  ))}
-                </td>
-                <td className="px-3 py-2">
-                  {line.kind === 'GIFT_CARD' ? (
-                    <span className="text-slate-400">—</span>
-                  ) : (
-                    <Select aria-label="Staff" value={line.staffId} onChange={(e) => onChange(line.key, { staffId: e.target.value })} className="w-36">
-                      <option value="">—</option>
-                      {staff.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </Select>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <Input
-                    aria-label="Quantity"
-                    type="number"
-                    min={1}
-                    disabled={line.kind === 'GIFT_CARD' || line.kind === 'MEMBERSHIP'}
-                    value={line.qty}
-                    onChange={(e) => onChange(line.key, { qty: e.target.value })}
-                    className="w-16"
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  {priceEditable ? (
-                    <Input
-                      aria-label="Unit price"
-                      inputMode="decimal"
-                      placeholder={paiseToRupees(shownPrice)}
-                      value={line.price}
-                      onChange={(e) => onChange(line.key, { price: e.target.value })}
-                      className="w-24"
-                    />
-                  ) : (
-                    <span className="block py-2 tabular-nums">{formatINR(isRedemption(line) ? 0 : shownPrice)}</span>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  {fixedLine(line) ? (
-                    <span className="block py-2 text-slate-400">—</span>
-                  ) : (
-                    <div className="flex w-32">
-                      <Input
-                        aria-label="Discount"
-                        inputMode="decimal"
-                        value={line.discount}
-                        onChange={(e) => onChange(line.key, { discount: e.target.value })}
-                        className="rounded-r-none"
-                      />
-                      <button
-                        type="button"
-                        title="Switch between percent and rupees"
-                        onClick={() => onChange(line.key, { discountType: line.discountType === 'PERCENT' ? 'FLAT' : 'PERCENT' })}
-                        className="rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                      >
-                        {line.discountType === 'PERCENT' ? '%' : '₹'}
-                      </button>
-                    </div>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  {fixedLine(line) ? (
-                    <span className="block py-2 text-slate-400">No tax</span>
-                  ) : (
-                    <Select aria-label="Tax" value={line.taxRateId} onChange={(e) => onChange(line.key, { taxRateId: e.target.value })} className="w-32">
-                      <option value="">No tax</option>
-                      {lineTaxes.map((t) => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </Select>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                  {computed ? (
-                    <>
-                      <span className="block font-medium text-slate-900">{formatINR(computed.totalPaise)}</span>
-                      {computed.discountPaise > 0 && <span className="block text-xs text-emerald-700">−{formatINR(computed.discountPaise)}</span>}
-                      {computed.taxPaise > 0 && <span className="block text-xs text-slate-500">incl. tax {formatINR(computed.taxPaise)}</span>}
-                    </>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <Button variant="ghost" size="icon" onClick={() => onRemove(line.key)} aria-label={`Remove ${line.name}`}>
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className={cx('min-w-0', className)}>
+      <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
+      {children}
     </div>
+  );
+}
+
+/**
+ * One card per line rather than a wide table: the fields wrap two per row in a narrow column (phones, or beside
+ * the checkout panel) and sit on one row once the list is wide enough. Sized by the list's width (@container),
+ * not the screen's, because the list shares the screen with the checkout column on desktop.
+ */
+function LineItems({ lines, priced, taxes, staff, errors, canManage, onChange, onRemove }) {
+  return (
+    <ul className="@container divide-y divide-slate-100 text-sm">
+      {lines.map((line, index) => {
+        const computed = priced?.lines[index];
+        const lineErrors = Object.entries(errors).filter(([key]) => key.startsWith(`items.${index}.`) || key === `items.${index}`);
+        const category = taxCategory(line.kind);
+        const lineTaxes = taxes.filter((t) => t.appliesTo === 'ALL' || t.appliesTo === category);
+        const priceEditable = line.kind === 'GIFT_CARD' || (canManage && !isRedemption(line));
+        const shownPrice = computed && computed.kind === line.kind ? computed.unitPricePaise : line.catalogPaise;
+        return (
+          <li key={line.key} className="px-4 py-3 sm:px-5">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium break-words text-slate-900">{line.name}</p>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  <Badge tone={isRedemption(line) ? 'blue' : 'slate'}>{isRedemption(line) ? 'From package' : ITEM_KIND_LABELS[line.kind]}</Badge>
+                  {computed?.memberDiscount && <Badge tone="brand">Member discount</Badge>}
+                </div>
+              </div>
+              <div className="text-right whitespace-nowrap tabular-nums">
+                {computed ? (
+                  <>
+                    <span className="block font-semibold text-slate-900">{formatINR(computed.totalPaise)}</span>
+                    {computed.discountPaise > 0 && <span className="block text-xs text-emerald-700">−{formatINR(computed.discountPaise)}</span>}
+                    {computed.taxPaise > 0 && <span className="block text-xs text-slate-500">incl. tax {formatINR(computed.taxPaise)}</span>}
+                  </>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </div>
+              <Button variant="ghost" size="icon" className="-mt-1 -mr-2 shrink-0" onClick={() => onRemove(line.key)} aria-label={`Remove ${line.name}`}>
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 @xl:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.2fr)]">
+              <LineField label="Staff">
+                {line.kind === 'GIFT_CARD' ? (
+                  <span className="block py-2 text-slate-400">—</span>
+                ) : (
+                  <Select aria-label="Staff" value={line.staffId} onChange={(e) => onChange(line.key, { staffId: e.target.value })}>
+                    <option value="">—</option>
+                    {staff.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </Select>
+                )}
+              </LineField>
+              <LineField label="Qty">
+                <Input
+                  aria-label="Quantity"
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  disabled={line.kind === 'GIFT_CARD' || line.kind === 'MEMBERSHIP'}
+                  value={line.qty}
+                  onChange={(e) => onChange(line.key, { qty: e.target.value })}
+                />
+              </LineField>
+              <LineField label="Price (₹)">
+                {priceEditable ? (
+                  <Input
+                    aria-label="Unit price"
+                    inputMode="decimal"
+                    placeholder={paiseToRupees(shownPrice)}
+                    value={line.price}
+                    onChange={(e) => onChange(line.key, { price: e.target.value })}
+                  />
+                ) : (
+                  <span className="block py-2 tabular-nums">{formatINR(isRedemption(line) ? 0 : shownPrice)}</span>
+                )}
+              </LineField>
+              <LineField label="Discount">
+                {fixedLine(line) ? (
+                  <span className="block py-2 text-slate-400">—</span>
+                ) : (
+                  <div className="flex">
+                    <Input
+                      aria-label="Discount"
+                      inputMode="decimal"
+                      value={line.discount}
+                      onChange={(e) => onChange(line.key, { discount: e.target.value })}
+                      className="min-w-0 rounded-r-none"
+                    />
+                    <button
+                      type="button"
+                      title="Switch between percent and rupees"
+                      onClick={() => onChange(line.key, { discountType: line.discountType === 'PERCENT' ? 'FLAT' : 'PERCENT' })}
+                      className="rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {line.discountType === 'PERCENT' ? '%' : '₹'}
+                    </button>
+                  </div>
+                )}
+              </LineField>
+              <LineField label="Tax" className="col-span-2 @xl:col-span-1">
+                {fixedLine(line) ? (
+                  <span className="block py-2 text-slate-400">No tax</span>
+                ) : (
+                  <Select aria-label="Tax" value={line.taxRateId} onChange={(e) => onChange(line.key, { taxRateId: e.target.value })}>
+                    <option value="">No tax</option>
+                    {lineTaxes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </Select>
+                )}
+              </LineField>
+            </div>
+
+            {lineErrors.map(([key, message]) => (
+              <p key={key} role="alert" className="mt-2 text-xs text-rose-600">{message}</p>
+            ))}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -650,7 +668,7 @@ function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }
       {state.payments.map((p) => (
         <div key={p.key} className="space-y-2 rounded-lg bg-slate-50 p-2.5">
           <div className="flex gap-2">
-            <Select aria-label="Payment method" value={p.method} onChange={(e) => update(p.key, { method: e.target.value })} className="w-36">
+            <Select aria-label="Payment method" value={p.method} onChange={(e) => update(p.key, { method: e.target.value })} className="w-32 shrink-0 sm:w-36">
               {PAYMENT_METHODS.map((m) => (
                 <option key={m} value={m}>{METHOD_LABELS[m]}</option>
               ))}
@@ -662,6 +680,7 @@ function PaymentsPanel({ state, set, priced, errors, paymentError, paymentRows }
               value={p.amount}
               invalid={!!paymentError(p, 'amountPaise')}
               onChange={(e) => update(p.key, { amount: e.target.value })}
+              className="min-w-0"
             />
             {state.payments.length > 1 && (
               <Button variant="ghost" size="icon" aria-label="Remove payment" onClick={() => set((s) => ({ payments: s.payments.filter((x) => x.key !== p.key) }))}>

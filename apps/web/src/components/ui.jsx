@@ -282,7 +282,8 @@ export function Pagination({ page, pageSize, total, onChange }) {
 
 export function Tabs({ tabs, value, onChange }) {
   return (
-    <div role="tablist" className="inline-flex rounded-lg bg-slate-100 p-1">
+    // Scrolls sideways instead of overflowing the page when the tabs don't fit (phones).
+    <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-1 [scrollbar-width:none]">
       {tabs.map((tab) => (
         <button
           key={tab.value}
@@ -291,7 +292,7 @@ export function Tabs({ tabs, value, onChange }) {
           aria-selected={value === tab.value}
           onClick={() => onChange(tab.value)}
           className={cx(
-            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
             value === tab.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900',
           )}
         >
