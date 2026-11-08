@@ -1,0 +1,43 @@
+# Render's free server sleeps after 15 minutes without visitors, and has failed to wake up again
+# (the site hangs until a redeploy). Visiting it every 5 minutes keeps it from ever sleeping.
+# A failed run means the site is down; GitHub emails the repo owner about failed runs.
+# Optional self-repair: add the Render deploy hook (Render → sabilling → Settings → Deploy Hook) as the
+# repository secret RENDER_DEPLOY_HOOK_URL and a down site is redeployed automatically.
+name: Keep site awake
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-awake
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HEALTH_URL: https://billing.glamandgrit.co.in/api/health
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+    steps:
+      - name: Visit the site
+        run: |
+          for attempt in 1 2 3; do
+            if curl -fsS -m 90 "$HEALTH_URL"; then
+              echo
+              echo "Site is up"
+              exit 0
+            fi
+            echo "Attempt $attempt: no answer"
+            sleep 20
+          done
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Asking Render to redeploy"
+            curl -fsS -m 30 -X POST "$RENDER_DEPLOY_HOOK_URL" > /dev/null
+          fi
+          echo "::error::$HEALTH_URL did not answer"
+          exit 1

@@ -71,11 +71,15 @@ Render's free server sleeps after 15 minutes without visitors; the next visit th
 and WhatsApp reminders don't go out while it sleeps. A free monitor visits every 5 minutes to keep it awake.
 One always-on service fits within Render's 750 free hours a month.
 
-1. Go to **uptimerobot.com** → sign up free.
-2. **New monitor** → type **HTTP(s)** → URL `https://sabilling.onrender.com/api/health` (your address) →
-   interval **5 minutes** → **Create**.
+This is built in: the GitHub workflow [keep-awake.yml](../.github/workflows/keep-awake.yml) visits
+`/api/health` every 5 minutes, with nothing to set up. GitHub emails you when a run fails, which means the
+site is down. To have it redeploy a down site by itself, copy Render → sabilling → **Settings** →
+**Deploy Hook** into GitHub → repo **Settings** → **Secrets and variables** → **Actions** as
+`RENDER_DEPLOY_HOOK_URL`.
 
-It also emails you if the site ever goes down.
+GitHub turns scheduled workflows off after 60 days without a commit; if that happens, re-enable it under the
+repo's **Actions** tab. A second monitor at **uptimerobot.com** (HTTP(s), your `/api/health` address,
+every 5 minutes) is a good backup.
 
 ## 5. Your own address (optional)
 
@@ -85,7 +89,7 @@ To use `https://billing.glamandgrit.co.in`:
 2. Where you manage your domain's DNS, add a **CNAME** record: name `billing`, value `sabilling.onrender.com`
    (the address Render shows).
 3. Back in Render click **Verify**. HTTPS is set up automatically.
-4. Change `APP_URL` to `https://billing.glamandgrit.co.in`, and the UptimeRobot monitor URL too.
+4. Change `APP_URL` to `https://billing.glamandgrit.co.in`, and `HEALTH_URL` in `.github/workflows/keep-awake.yml` too.
 
 ## 6. Switch-over day: move your Easy Salon data
 
@@ -148,7 +152,7 @@ Keep the `.dump` files somewhere safe (Google Drive, an external disk). To resto
 | Limit | What it means for you |
 |---|---|
 | Files reset on every restart/deploy | Website offer and gallery photos vanish; don't rely on them on the free plan. Everything else is in the database. |
-| Sleeps after 15 min idle | Solved by the UptimeRobot monitor (step 4). |
+| Sleeps after 15 min idle | Solved by the keep-awake workflow (step 4). |
 | Small, slow server (512 MB) | Fine for one salon; pages may feel slower than on your PC. |
 | 500 MB database | Many years of bills for one salon. |
 | Supabase pauses projects unused for 7 days | Sabilling checks the database every few seconds, so it stays active. If it is ever paused, open the project in Supabase and click **Restore**. |
@@ -164,6 +168,6 @@ plan with a persistent disk for photos, or a small VPS with [DEPLOY.md](DEPLOY.m
 | Build fails at `db:deploy` with "Can't reach database server" | `DATABASE_URL` is wrong: use the **Session pooler** address, port 5432, with your real password (letters and numbers only) and `?sslmode=require&connection_limit=5`. |
 | `prepared statement "s0" already exists` | You used the Transaction pooler (port 6543); switch to the Session pooler (port 5432). |
 | Build fails with "Set SEED_ADMIN_PASSWORD" | Add `SEED_ADMIN_PASSWORD` (8+ characters) under **Environment** and redeploy. |
-| Site takes a minute to open | The UptimeRobot monitor isn't running, or points at the wrong address. |
+| Site takes a minute to open, or hangs | The keep-awake workflow isn't running (GitHub → **Actions**), or points at the wrong address. If it hangs for minutes, Render → **Manual Deploy** brings it back. |
 | The import says `Database: 127.0.0.1…` | `$env:DATABASE_URL` isn't set in that PowerShell window, so it's using your local database. Set it and run again. |
 | Anything else | Render → service → **Logs** shows the error; paste it to whoever is helping you. |
