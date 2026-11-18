@@ -612,6 +612,8 @@ model BillItem {
   unitPricePaise      Int
   /// Line discount plus its share of bill-level discounts.
   discountPaise       Int
+  /// The line's own discount (given or member), without the bill-level share. Null on bills raised before it was stored.
+  lineDiscountPaise   Int?
   taxRateId           String?
   taxPct              Decimal            @default(0) @db.Decimal(5, 2)
   taxPaise            Int

@@ -78,6 +78,7 @@ export function AuthProvider({ children }) {
       branchId,
       branch: branches.find((b) => b.id === branchId) ?? null,
       canManage: Boolean(user && user.role !== ROLES.USER),
+      isSuperadmin: user?.role === ROLES.SUPERADMIN,
       loading,
       login,
       logout,

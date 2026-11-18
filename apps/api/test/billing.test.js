@@ -410,6 +410,110 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Billing (M4)', () => {
     });
   });
 
+  describe('editing', () => {
+    const editBill = (agent, id, body) => agent.put(`/api/bills/${id}`).set(BRANCH_HEADER, fx.a1).send(body);
+
+    it('lets only a superadmin edit, and keeps the number, date and creator', async () => {
+      const client = await newClient();
+      const created = (await createBill(desk, { clientId: client.id, items: [haircut()], payments: [cash(50000)] }).expect(201)).body.data;
+      const body = { clientId: client.id, items: [haircut({ qty: 2 })], payments: [cash(50000), cash(50000)] };
+      await editBill(desk, created.id, body).expect(403);
+      await editBill(admin, created.id, body).expect(403);
+
+      const edited = (await editBill(boss, created.id, body).expect(200)).body.data;
+      expect(edited).toMatchObject({
+        id: created.id, number: created.number, billedAt: created.billedAt, createdBy: created.createdBy,
+        subtotalPaise: 100000, totalPaise: 100000, paidPaise: 100000, duePaise: 0, status: 'PAID', pointsEarned: 20,
+      });
+      expect(edited.items).toHaveLength(1);
+      expect(edited.items[0]).toMatchObject({ qty: 2, commissionPaise: 10000 });
+      // The payment that stayed the same keeps its original receipt time.
+      const original = created.payments[0];
+      expect(edited.payments.some((p) => p.receivedAt === original.receivedAt && p.amountPaise === 50000)).toBe(true);
+      expect(edited.payments).toHaveLength(2);
+      expect(await points(client.id)).toBe(20);
+      expect(await prisma.billItem.count({ where: { billId: created.id } })).toBe(1);
+    });
+
+    it('takes back stock, wallet, points and memberships and applies the new version', async () => {
+      const client = await newClient();
+      await prisma.walletEntry.create({ data: { clientId: client.id, branchId: fx.a1, amountPaise: 300000, reason: 'OPENING' } });
+      await prisma.pointsEntry.create({ data: { clientId: client.id, branchId: fx.a1, points: 50, reason: 'OPENING' } });
+      const created = (await createBill(desk, {
+        clientId: client.id,
+        items: [{ kind: 'PRODUCT', refId: fx.shampoo, qty: 2 }, { kind: 'MEMBERSHIP', refId: fx.gold }],
+        redeemPoints: 50,
+        payments: [{ method: 'WALLET', amountPaise: 200000 }],
+      }).expect(201)).body.data;
+      expect(await wallet(client.id)).toBe(100000);
+
+      const edited = (await editBill(boss, created.id, {
+        clientId: client.id,
+        items: [{ kind: 'PRODUCT', refId: fx.shampoo, qty: 1, discount: { type: 'FLAT', value: 10000 } }, haircut({ staffIds: [fx.stylist, fx.stylist2] })],
+        payments: [{ method: 'WALLET', amountPaise: 120000 }],
+      }).expect(200)).body.data;
+
+      expect(edited).toMatchObject({ subtotalPaise: 130000, discountPaise: 10000, totalPaise: 120000, duePaise: 0, pointsRedeemed: 0 });
+      expect(edited.items.find((i) => i.kind === 'PRODUCT')).toMatchObject({ lineDiscountPaise: 10000 });
+      expect(edited.items.find((i) => i.kind === 'SERVICE').providers).toHaveLength(2);
+      expect(await wallet(client.id)).toBe(300000 - 120000);
+      expect(await points(client.id)).toBe(50 + 5 + 10);
+      expect(await prisma.clientMembership.count({ where: { clientId: client.id } })).toBe(0);
+      const stock = await prisma.stockMovement.aggregate({ where: { productId: fx.shampoo, note: `Bill ${created.number}` }, _sum: { qtyChange: true } });
+      expect(stock._sum.qtyChange).toBe(-1);
+    });
+
+    it('rolls back a rejected edit and previews without saving', async () => {
+      const client = await newClient();
+      const created = (await createBill(desk, { clientId: client.id, items: [haircut()], payments: [cash(50000)] }).expect(201)).body.data;
+
+      const preview = await boss.post(`/api/bills/${created.id}/preview`).set(BRANCH_HEADER, fx.a1)
+        .send({ clientId: client.id, items: [haircut({ qty: 3 })], payments: [cash(50000)] }).expect(200);
+      expect(preview.body.data).toMatchObject({ totalPaise: 150000, paidPaise: 50000, duePaise: 100000 });
+
+      const bad = await editBill(boss, created.id, { clientId: client.id, items: [haircut()], payments: [{ method: 'WALLET', amountPaise: 50000 }] });
+      expect(bad.status).toBe(400);
+      const after = (await boss.get(`/api/bills/${created.id}`).set(BRANCH_HEADER, fx.a1).expect(200)).body.data;
+      expect(after).toMatchObject({ totalPaise: 50000, paidPaise: 50000 });
+      expect(after.items).toHaveLength(1);
+      expect(after.payments).toMatchObject([{ method: 'CASH', amountPaise: 50000 }]);
+      expect(await points(client.id)).toBe(10);
+    });
+
+    it('keeps gift card codes, and refuses void bills or spent gift cards', async () => {
+      const client = await newClient();
+      const sale = (await createBill(desk, { clientId: client.id, items: [{ kind: 'GIFT_CARD', unitPricePaise: 30000 }], payments: [cash(30000)] }).expect(201)).body.data;
+      const [card] = sale.giftCardsIssued;
+      const edited = (await editBill(boss, sale.id, {
+        clientId: client.id, items: [{ kind: 'GIFT_CARD', unitPricePaise: 30000 }, haircut()], payments: [cash(80000)],
+      }).expect(200)).body.data;
+      expect(edited.giftCardsIssued.map((g) => g.code)).toEqual([card.code]);
+
+      await createBill(desk, { clientId: client.id, items: [haircut()], payments: [{ method: 'GIFT_CARD', amountPaise: 10000, reference: card.code }] }).expect(201);
+      await editBill(boss, sale.id, { clientId: client.id, items: [haircut()], payments: [] }).expect(409);
+
+      const other = (await createBill(desk, { clientId: client.id, items: [haircut()] }).expect(201)).body.data;
+      await admin.post(`/api/bills/${other.id}/void`).set(BRANCH_HEADER, fx.a1).send({ reason: 'x' }).expect(200);
+      await editBill(boss, other.id, { clientId: client.id, items: [haircut()] }).expect(409);
+    });
+
+    it('keeps the appointment and its advance attached', async () => {
+      const client = await newClient();
+      const appt = await prisma.appointment.create({
+        data: {
+          branchId: fx.a1, clientId: client.id, date: day(today), startTime: '10:00', endTime: '10:30', status: 'CHECKED_IN',
+          items: { create: [{ serviceId: fx.haircut, startTime: '10:00', endTime: '10:30', pricePaise: 50000 }] },
+        },
+      });
+      await prisma.payment.create({ data: { branchId: fx.a1, clientId: client.id, appointmentId: appt.id, kind: 'ADVANCE', method: 'CASH', amountPaise: 20000 } });
+      const created = (await createBill(desk, { clientId: client.id, appointmentId: appt.id, items: [haircut()], payments: [cash(30000)] }).expect(201)).body.data;
+      const edited = (await editBill(boss, created.id, { clientId: client.id, items: [haircut(), { kind: 'SERVICE', refId: fx.colour }], payments: [cash(30000)] }).expect(200)).body.data;
+      expect(edited.appointment).toMatchObject({ id: appt.id });
+      expect(edited.paidPaise).toBe(50000);
+      expect(await prisma.appointment.findUnique({ where: { id: appt.id } })).toMatchObject({ status: 'BILLED', billId: created.id });
+    });
+  });
+
   describe('permissions and scoping', () => {
     it('lets only managers override prices', async () => {
       const client = await newClient();

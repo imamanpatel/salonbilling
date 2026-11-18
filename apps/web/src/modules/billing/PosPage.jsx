@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { CalendarCheck, CheckCircle2, Gift, MessageCircle, Plus, Printer, Receipt, Search, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { fieldErrors, formatINR, paiseToRupees, PAYMENT_METHODS } from '@salon/shared';
-import { billSchema, MAX_LINE_PROVIDERS } from '@salon/shared/billing';
+import { allocate, billSchema, MAX_LINE_PROVIDERS } from '@salon/shared/billing';
 import { Badge, Button, Card, CardHeader, Checkbox, cx, Input, Select, Spinner, Textarea } from '../../components/ui.jsx';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.jsx';
 import { formatDate, formatDateTime, moneyInput, whatsappLink } from '../../lib/format.js';
 import { useDebounced } from '../../lib/hooks.js';
+import { useBill } from './BillDetailModal.jsx';
 import ClientPicker from './ClientPicker.jsx';
 import { billingKeys, useActiveStaff, useBillCatalogue, useClientAccount } from './hooks.js';
 import { ITEM_KIND_LABELS, METHOD_LABELS, needsReference } from './labels.js';
@@ -74,6 +75,69 @@ function toPayload(state, taxes) {
   return { payload, paymentRows };
 }
 
+/** "500.00" -> "500", for prefilled rupee inputs. */
+const rupeesText = (paise) => paiseToRupees(paise).replace(/\.00$/, '');
+
+/**
+ * The line's own discount. Bills from before it was stored only keep line + bill-level share, so the share is
+ * estimated by spreading the bill-level discounts the way pricing does (close, not always exact).
+ */
+function lineDiscounts(bill) {
+  const fixed = (item) => Boolean(item.clientPackageItemId) || item.kind === 'GIFT_CARD';
+  const billLevel = bill.couponDiscountPaise + bill.pointsDiscountPaise + bill.manualDiscountPaise;
+  const weights = bill.items.map((i) => (fixed(i) ? 0 : Math.max(0, i.grossPaise - i.discountPaise)));
+  const shares = allocate(billLevel, weights);
+  return bill.items.map((item, i) => item.lineDiscountPaise ?? Math.max(0, item.discountPaise - shares[i]));
+}
+
+/** POS state for editing a saved bill. */
+function stateFromBill(bill, catalogue) {
+  const discounts = lineDiscounts(bill);
+  const lines = bill.items.map((item, i) => {
+    const refId = item.serviceId ?? item.productId ?? item.packageId ?? item.membershipPlanId ?? null;
+    const service = item.kind === 'SERVICE' && catalogue.services.find((s) => s.id === refId);
+    const catalogPaise =
+      item.kind === 'SERVICE' ? service?.pricePaise
+      : item.kind === 'PRODUCT' ? catalogue.products.find((p) => p.id === refId)?.salePricePaise
+      : item.kind === 'PACKAGE' ? catalogue.packages.find((p) => p.id === refId)?.pricePaise
+      : item.kind === 'MEMBERSHIP' ? catalogue.membershipPlans.find((p) => p.id === refId)?.pricePaise
+      : undefined;
+    const atCatalogue = item.unitPricePaise === catalogPaise || (service && item.unitPricePaise === service.memberPricePaise);
+    const fixed = Boolean(item.clientPackageItemId) || item.kind === 'GIFT_CARD';
+    return newLine({
+      kind: item.kind,
+      refId,
+      clientPackageItemId: item.clientPackageItemId,
+      name: item.name,
+      staffIds: item.providers.map((p) => p.id),
+      staffNames: Object.fromEntries(item.providers.map((p) => [p.id, p.name])),
+      qty: String(item.qty),
+      catalogPaise: catalogPaise ?? item.unitPricePaise,
+      price: item.kind === 'GIFT_CARD' || (!fixed && !atCatalogue) ? rupeesText(item.unitPricePaise) : '',
+      discountType: 'FLAT',
+      discount: !fixed && discounts[i] > 0 ? rupeesText(discounts[i]) : '',
+    });
+  });
+  const taxed = bill.items.find((i) => !i.clientPackageItemId && i.kind !== 'GIFT_CARD');
+  const payments = bill.payments
+    .filter((p) => p.kind !== 'ADVANCE')
+    .map((p) => ({ ...newPayment(p.method), amount: rupeesText(p.amountPaise), reference: p.reference ?? '' }));
+  return {
+    ...EMPTY,
+    client: bill.client,
+    lines,
+    couponInput: bill.couponCode ?? '',
+    couponCode: bill.couponCode ?? '',
+    manualDiscount: bill.manualDiscountPaise > 0 ? rupeesText(bill.manualDiscountPaise) : '',
+    manualDiscountType: 'FLAT',
+    redeemPoints: bill.pointsRedeemed > 0 ? String(bill.pointsRedeemed) : '',
+    // Undefined keeps the branch default (nothing on the bill says which rate to use).
+    taxRate: taxed ? (taxed.taxRateId ? String(taxed.taxPct) : '') : undefined,
+    payments: payments.length ? payments : [newPayment()],
+    notes: bill.notes ?? '',
+  };
+}
+
 const EMPTY = {
   client: null, lines: [], couponInput: '', couponCode: '', manualDiscount: '', manualDiscountType: 'PERCENT', redeemPoints: '',
   // null until the catalogue loads and gives the branch's default rate.
@@ -82,11 +146,14 @@ const EMPTY = {
 };
 
 export default function PosPage() {
-  const { branchId, canManage } = useAuth();
+  const { branchId, canManage, isSuperadmin } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const appointmentId = searchParams.get('appointmentId');
+  // /bills/:id/edit rewrites a saved bill (superadmin only); /billing/new raises a new one.
+  const { id: editId } = useParams();
+  const editing = useBill(editId);
+  const appointmentId = editId ? null : searchParams.get('appointmentId');
   const catalogue = useBillCatalogue();
   const staff = useActiveStaff();
 
@@ -137,14 +204,25 @@ export default function PosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appointment.data, catalogue.data]);
 
+  const loadedBill = useRef(null);
+  useEffect(() => {
+    const bill = editing.data;
+    if (!bill || !catalogue.data || loadedBill.current === bill.id) return;
+    loadedBill.current = bill.id;
+    setState((s) => {
+      const next = stateFromBill(bill, catalogue.data);
+      return { ...next, taxRate: next.taxRate ?? s.taxRate };
+    });
+  }, [editing.data, catalogue.data]);
+
   const linkedAppointment = appointmentId && appointment.data && state.client?.id === appointment.data.clientId ? appointment.data : null;
   const { payload, paymentRows } = toPayload({ ...state, appointmentId: linkedAppointment?.id }, taxes);
   const parsed = billSchema.safeParse(payload);
   const localErrors = state.client && state.lines.length && !parsed.success ? fieldErrors(parsed.error) : {};
   const previewKey = useDebounced(parsed.success ? JSON.stringify(payload) : '', 300);
   const preview = useQuery({
-    queryKey: [branchId, 'bill-preview', previewKey],
-    queryFn: () => api('/bills/preview', { method: 'POST', body: JSON.parse(previewKey) }),
+    queryKey: [branchId, 'bill-preview', editId ?? null, previewKey],
+    queryFn: () => api(editId ? `/bills/${editId}/preview` : '/bills/preview', { method: 'POST', body: JSON.parse(previewKey) }),
     enabled: Boolean(previewKey),
     placeholderData: keepPreviousData,
     retry: false,
@@ -153,10 +231,12 @@ export default function PosPage() {
   const errors = { ...localErrors, ...(preview.error?.details ?? {}), ...(priced?.errors ?? {}), ...submitErrors };
 
   const create = useMutation({
-    mutationFn: () => api('/bills', { method: 'POST', body: payload }),
+    mutationFn: () => (editId ? api(`/bills/${editId}`, { method: 'PUT', body: payload }) : api('/bills', { method: 'POST', body: payload })),
     onSuccess: (bill) => {
-      toast.success(`Bill ${bill.number} created`);
-      billingKeys(branchId, bill.clientId).forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
+      toast.success(`Bill ${bill.number} ${editId ? 'updated' : 'created'}`);
+      const clients = new Set([bill.clientId, editing.data?.clientId].filter(Boolean));
+      clients.forEach((clientId) => billingKeys(branchId, clientId).forEach((queryKey) => queryClient.invalidateQueries({ queryKey })));
+      if (editId) queryClient.invalidateQueries({ queryKey: [branchId, 'bill', editId] });
       queryClient.invalidateQueries({ queryKey: [branchId, 'bill-catalogue'] });
       setDone(bill);
     },
@@ -183,7 +263,12 @@ export default function PosPage() {
     if (appointmentId) navigate('/billing/new', { replace: true });
   };
 
-  if (done) return <BillCreated bill={done} onNew={startOver} />;
+  if (done) return <BillCreated bill={done} edited={Boolean(editId)} onNew={editId ? () => navigate('/billing/new') : startOver} />;
+  if (editId) {
+    if (!isSuperadmin) return <Card className="mx-auto max-w-lg p-8 text-center text-sm text-slate-600">Only a superadmin can edit bills.</Card>;
+    if (editing.error) return <Card className="mx-auto max-w-lg p-8 text-center text-sm text-rose-600">{editing.error.message}</Card>;
+    if (!loadedBill.current) return <Spinner className="mx-auto my-10" />;
+  }
 
   const updateLine = (key, patch) => set((s) => ({ lines: s.lines.map((l) => (l.key === key ? { ...l, ...patch } : l)) }));
   const addLine = (line) => set((s) => ({ lines: [...s.lines, line] }));
@@ -218,7 +303,8 @@ export default function PosPage() {
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <Card>
           <CardHeader
-            title="Generate new bill"
+            title={editId ? `Edit bill ${editing.data?.number ?? ''}` : 'Generate new bill'}
+            description={editId ? 'Saving replaces the bill: its number and date stay, and stock, points, wallet and packages are worked out again.' : undefined}
             actions={
               <Button variant="secondary" size="sm" onClick={() => navigate('/bills')}>
                 <Receipt className="size-4" /> All bills
@@ -229,7 +315,7 @@ export default function PosPage() {
           <div className="space-y-3 px-4 py-4 sm:px-5">
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">Client</span>
-              <ClientPicker client={state.client} onChange={setClient} disabled={Boolean(linkedAppointment)} />
+              <ClientPicker client={state.client} onChange={setClient} disabled={Boolean(linkedAppointment || editing.data?.appointment)} />
               {errors.clientId && <p className="mt-1 text-xs text-rose-600">{errors.clientId}</p>}
             </div>
             {appointmentId && appointment.isPending && <Spinner className="mx-auto" />}
@@ -300,7 +386,7 @@ export default function PosPage() {
           </p>
         </div>
         <Button onClick={submit} loading={create.isPending} disabled={!canSubmit}>
-          Create bill
+          {editId ? 'Save changes' : 'Create bill'}
         </Button>
       </div>
     </div>
@@ -425,8 +511,8 @@ const ROW_COLUMNS = '@2xl:grid-cols-[minmax(0,1.6fr)_minmax(7.5rem,1.4fr)_3.5rem
  * Who did a line: one or more staff. Picked staff show as removable chips; the select below adds another.
  * The line's amount (and so the commission base) is split equally between them.
  */
-function StaffPicker({ staff, value, onChange }) {
-  const picked = value.map((id) => staff.find((s) => s.id === id) ?? { id, name: 'Staff' });
+function StaffPicker({ staff, names = {}, value, onChange }) {
+  const picked = value.map((id) => staff.find((s) => s.id === id) ?? { id, name: names[id] ?? 'Staff' });
   const left = staff.filter((s) => !value.includes(s.id));
   return (
     <div className="space-y-1">
@@ -519,7 +605,7 @@ function LineItems({ lines, priced, staff, errors, canManage, onChange, onRemove
                 {line.kind === 'GIFT_CARD' ? (
                   <span className="block py-2 text-slate-400">—</span>
                 ) : (
-                  <StaffPicker staff={staff} value={line.staffIds} onChange={(staffIds) => onChange(line.key, { staffIds })} />
+                  <StaffPicker staff={staff} names={line.staffNames} value={line.staffIds} onChange={(staffIds) => onChange(line.key, { staffIds })} />
                 )}
               </div>
               <div className="min-w-0">
@@ -859,7 +945,7 @@ function Client360({ client, onRedeem, lines }) {
   );
 }
 
-function BillCreated({ bill, onNew }) {
+function BillCreated({ bill, edited = false, onNew }) {
   const summary = [
     `Hi ${bill.client.name.split(' ')[0]}, thank you for visiting ${bill.branch?.salonName ?? 'us'}!`,
     `Bill ${bill.number}: ${formatINR(bill.totalPaise)}${bill.duePaise > 0 ? ` (balance due ${formatINR(bill.duePaise)})` : ''}.`,
@@ -870,7 +956,7 @@ function BillCreated({ bill, onNew }) {
   return (
     <Card className="mx-auto max-w-lg p-8 text-center">
       <CheckCircle2 className="mx-auto size-12 text-emerald-500" />
-      <h1 className="mt-3 text-xl font-semibold text-slate-900">Bill {bill.number} created</h1>
+      <h1 className="mt-3 text-xl font-semibold text-slate-900">Bill {bill.number} {edited ? 'updated' : 'created'}</h1>
       <p className="mt-1 text-sm text-slate-500">{bill.client.name}</p>
       <dl className="mx-auto mt-5 grid max-w-xs grid-cols-3 gap-3 text-sm">
         <div><dt className="text-slate-500">Total</dt><dd className="font-semibold tabular-nums">{formatINR(bill.totalPaise)}</dd></div>

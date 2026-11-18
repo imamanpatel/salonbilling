@@ -11,14 +11,15 @@ import { validateBody } from '../../middleware/validate.js';
 import {
   billContext, billListInclude, branchSettings, loadBillDetail, previewDto, priceBill, toBillListDto,
 } from '../../services/billing.js';
-import { collectBillPayment, createBill, voidBill } from '../../services/billingActions.js';
+import { collectBillPayment, createBill, editBill, previewBillEdit, voidBill } from '../../services/billingActions.js';
 
 export const mount = { path: '/bills', scope: 'branch' };
 
 // Bills belong to the branch that raised them. Front desk users may create bills and collect dues; only managers
-// may override prices or void a bill.
+// may override prices or void a bill, and only a superadmin may edit one.
 const router = Router();
 const canVoid = requireRole(ROLES.SUPERADMIN, ROLES.ADMIN);
+const canEdit = requireRole(ROLES.SUPERADMIN);
 const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -132,6 +133,18 @@ router.post('/', validateBody(billSchema), async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
+  await sendDetail(res, req.branchId, req.params.id);
+});
+
+/** Price an edit of a bill without saving it (superadmin only). */
+router.post('/:id/preview', canEdit, validateBody(billSchema), async (req, res) => {
+  res.json({ data: await previewBillEdit(prisma, billContext(req), req.params.id, req.body, TX_OPTIONS) });
+});
+
+/** Rewrite a bill's items, discounts and payments; it keeps its number and date (superadmin only). */
+router.put('/:id', canEdit, validateBody(billSchema), async (req, res) => {
+  const ctx = billContext(req);
+  await prisma.$transaction((tx) => editBill(tx, ctx, req.params.id, req.body), TX_OPTIONS);
   await sendDetail(res, req.branchId, req.params.id);
 });
 

@@ -3,9 +3,10 @@ import { normalizeGiftCardCode, randomGiftCardCode } from '@salon/shared/catalog
 import { allocate } from '@salon/shared/billing';
 import { config } from '../config.js';
 import { addDaysIso, fromIsoDate, toIsoDate } from '../lib/dates.js';
+import { businessDate } from './hr.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { nextBillNumber } from './billNumbers.js';
-import { checkPayments, lockClient, priceBill } from './billing.js';
+import { checkPayments, lockClient, previewDto, priceBill } from './billing.js';
 import { queueTemplated } from './messaging.js';
 
 // Everything that writes bills. Each function expects to run inside one prisma.$transaction (sequential awaits only).
@@ -21,21 +22,30 @@ async function newGiftCardCode(tx) {
 
 const statusFor = (duePaise) => (duePaise === 0 ? 'PAID' : 'PARTIAL');
 
-/** Record bill/due payments and their wallet and gift-card effects. */
-async function recordPayments(tx, { ctx, bill, payments, kind, giftCards }) {
+const paymentKey = (p) => `${p.method}|${p.amountPaise}|${p.method === 'GIFT_CARD' ? normalizeGiftCardCode(p.reference ?? '') : ''}`;
+
+/**
+ * Record bill/due payments and their wallet and gift-card effects. `previous` are payments an edit removed: a new
+ * payment with the same method, amount and gift card keeps that one's kind, receipt time and recorder.
+ */
+async function recordPayments(tx, { ctx, bill, payments, kind, giftCards, previous = [] }) {
+  const pool = [...previous];
   for (const p of payments) {
     const card = p.method === 'GIFT_CARD' ? giftCards.get(normalizeGiftCardCode(p.reference)) : null;
+    const matched = pool.findIndex((old) => paymentKey(old) === paymentKey(p));
+    const old = matched >= 0 ? pool.splice(matched, 1)[0] : null;
     const payment = await tx.payment.create({
       data: {
         branchId: ctx.branchId,
         clientId: bill.clientId,
         billId: bill.id,
-        kind,
+        kind: old?.kind ?? kind,
         method: p.method,
         amountPaise: p.amountPaise,
         reference: card ? card.code : p.reference,
         giftCardId: card?.id ?? null,
-        createdById: ctx.user.id,
+        createdById: old ? old.createdById : ctx.user.id,
+        ...(old && { receivedAt: old.receivedAt }),
       },
     });
     if (p.method === 'WALLET') {
@@ -60,30 +70,41 @@ async function recordPayments(tx, { ctx, bill, payments, kind, giftCards }) {
 export async function createBill(tx, ctx, body) {
   await lockClient(tx, body.clientId);
   const priced = await priceBill(tx, ctx, body, { strict: true });
-  const { client, lines, totals, membership } = priced;
-  const today = ctx.today;
-  const paidPaise = priced.advancePaise + priced.paymentsPaise;
-  const duePaise = totals.totalPaise - paidPaise;
-
   const bill = await tx.bill.create({
-    data: {
-      branchId: ctx.branchId,
-      number: await nextBillNumber(tx, ctx.branchId),
-      clientId: client.id,
-      status: statusFor(duePaise),
-      ...totals,
-      paidPaise,
-      duePaise,
-      couponId: priced.coupon?.id ?? null,
-      couponDiscountPaise: priced.couponDiscountPaise,
-      manualDiscountPaise: priced.manualDiscountPaise,
-      pointsRedeemed: priced.pointsRedeemed,
-      pointsDiscountPaise: priced.pointsDiscountPaise,
-      pointsEarned: priced.pointsEarned + priced.bonusPoints,
-      notes: body.notes,
-      createdById: ctx.user.id,
-    },
+    data: { branchId: ctx.branchId, number: await nextBillNumber(tx, ctx.branchId), ...billFields(priced, body), createdById: ctx.user.id },
   });
+  await applyBill(tx, ctx, bill, priced, body, { billDate: ctx.today });
+  return bill.id;
+}
+
+/** Bill columns that follow from pricing. */
+function billFields(priced, body) {
+  const paidPaise = priced.advancePaise + priced.paymentsPaise;
+  const duePaise = priced.totals.totalPaise - paidPaise;
+  return {
+    clientId: priced.client.id,
+    status: statusFor(duePaise),
+    ...priced.totals,
+    paidPaise,
+    duePaise,
+    couponId: priced.coupon?.id ?? null,
+    couponDiscountPaise: priced.couponDiscountPaise,
+    manualDiscountPaise: priced.manualDiscountPaise,
+    pointsRedeemed: priced.pointsRedeemed,
+    pointsDiscountPaise: priced.pointsDiscountPaise,
+    pointsEarned: priced.pointsEarned + priced.bonusPoints,
+    notes: body.notes,
+  };
+}
+
+/**
+ * Write a priced bill's lines and all their effects: stock, packages, memberships, gift cards, payments, advances,
+ * the appointment, points and the receipt. `billDate` dates what the bill sells. An edit passes the gift cards the
+ * bill issued before (`giftCardPool`, reused by value so their codes stay valid) and the payments it removed.
+ */
+async function applyBill(tx, ctx, bill, priced, body, { billDate, giftCardPool = [], previousPayments = [] }) {
+  const { client, lines, totals, membership } = priced;
+  const today = billDate;
 
   for (const line of lines) {
     // Providers share the line equally; each earns their own commission rate on their share.
@@ -108,6 +129,7 @@ export async function createBill(tx, ctx, body) {
         qty: line.qty,
         unitPricePaise: line.unitPricePaise,
         discountPaise: line.discountPaise,
+        lineDiscountPaise: line.lineDiscountPaise,
         taxRateId: line.taxRate?.id ?? null,
         taxPct: line.taxPct,
         taxPaise: line.taxPaise,
@@ -156,6 +178,12 @@ export async function createBill(tx, ctx, body) {
         },
       });
     } else if (line.kind === 'GIFT_CARD') {
+      const reuse = giftCardPool.findIndex((g) => g.initialPaise === line.unitPricePaise);
+      if (reuse >= 0) {
+        const [card] = giftCardPool.splice(reuse, 1);
+        await tx.giftCard.update({ where: { id: card.id }, data: { issuedBillId: bill.id, clientId: client.id } });
+        continue;
+      }
       await tx.giftCard.create({
         data: {
           organizationId: ctx.organizationId,
@@ -170,7 +198,7 @@ export async function createBill(tx, ctx, body) {
     }
   }
 
-  await recordPayments(tx, { ctx, bill, payments: body.payments, kind: 'BILL', giftCards: priced.giftCards });
+  await recordPayments(tx, { ctx, bill, payments: body.payments, kind: 'BILL', giftCards: priced.giftCards, previous: previousPayments });
 
   if (priced.advances.length) {
     const { count } = await tx.payment.updateMany({
@@ -205,7 +233,6 @@ export async function createBill(tx, ctx, body) {
       createdById: ctx.user.id,
     });
   }
-  return bill.id;
 }
 
 async function lockedBill(tx, ctx, billId, include) {
@@ -304,4 +331,106 @@ export async function voidBill(tx, ctx, billId, { reason }) {
     await tx.appointment.update({ where: { id: bill.appointment.id }, data: { status: 'CHECKED_IN', billId: null } });
   }
   await tx.bill.update({ where: { id: bill.id }, data: { status: 'VOID', voidedAt: now, voidReason: reason } });
+}
+
+// ─── Editing ─────────────────────────────────────────────────────────────────
+// An edit rewrites a bill in place: same number, date and creator. Everything the old version did is taken back
+// (as if it had never been billed), then the new version is priced as of the bill's own date and applied again.
+
+const EDIT_INCLUDE = {
+  items: true,
+  payments: true,
+  clientPackages: { include: { items: true } },
+  giftCardsIssued: true,
+  appointment: { select: { id: true } },
+};
+
+async function lockedBillForEdit(tx, ctx, billId) {
+  const bill = await lockedBill(tx, ctx, billId, EDIT_INCLUDE);
+  if (bill.status === 'VOID') throw conflict('A void bill cannot be edited');
+  if (bill.clientPackages.some((cp) => cp.items.some((i) => i.usedQty > 0))) {
+    throw conflict('A package sold on this bill has already been used, so the bill cannot be edited');
+  }
+  if (bill.giftCardsIssued.some((g) => g.balancePaise < g.initialPaise)) {
+    throw conflict('A gift card sold on this bill has already been spent, so the bill cannot be edited');
+  }
+  return bill;
+}
+
+/** Take back everything `bill` did. Returns what applyBill can reuse. */
+async function unwindBill(tx, bill) {
+  const taken = bill.payments.filter((p) => p.kind !== 'ADVANCE');
+  for (const p of taken) {
+    if (p.method === 'GIFT_CARD' && p.giftCardId) {
+      await tx.giftCard.update({ where: { id: p.giftCardId }, data: { balancePaise: { increment: p.amountPaise } } });
+    }
+  }
+  await tx.walletEntry.deleteMany({ where: { billId: bill.id, reason: 'BILL_PAYMENT' } });
+  await tx.payment.deleteMany({ where: { id: { in: taken.map((p) => p.id) } } });
+  // Advances go back to the appointment; pricing the edit picks them up again.
+  await tx.payment.updateMany({ where: { billId: bill.id, kind: 'ADVANCE' }, data: { billId: null } });
+  if (bill.appointment) {
+    await tx.appointment.update({ where: { id: bill.appointment.id }, data: { billId: null, status: 'CHECKED_IN' } });
+  }
+
+  await tx.pointsEntry.deleteMany({ where: { billId: bill.id } });
+  const itemIds = bill.items.map((i) => i.id);
+  await tx.stockMovement.deleteMany({ where: { billItemId: { in: itemIds }, reason: 'SALE' } });
+  for (const item of bill.items) {
+    if (item.clientPackageItemId) {
+      await tx.clientPackageItem.update({ where: { id: item.clientPackageItemId }, data: { usedQty: { decrement: item.qty } } });
+    }
+  }
+  await tx.clientPackage.deleteMany({ where: { billId: bill.id } });
+  await tx.clientMembership.deleteMany({ where: { billId: bill.id } });
+  await tx.giftCard.updateMany({ where: { issuedBillId: bill.id }, data: { issuedBillId: null } });
+  await tx.billItem.deleteMany({ where: { billId: bill.id } });
+  // So a limited coupon doesn't count this bill against itself.
+  await tx.bill.update({ where: { id: bill.id }, data: { couponId: null } });
+
+  return { giftCardPool: [...bill.giftCardsIssued], previousPayments: taken };
+}
+
+/** Pricing context and payload for an edit: prices and validity as of the bill's date, same appointment. */
+function editInputs(ctx, bill, body) {
+  const billDate = businessDate(bill.billedAt);
+  return { billDate, ctx: { ...ctx, today: billDate }, body: { ...body, appointmentId: bill.appointment?.id ?? null } };
+}
+
+/** Replace a bill's contents (superadmin only). */
+export async function editBill(tx, ctx, billId, input) {
+  const bill = await lockedBillForEdit(tx, ctx, billId);
+  if (input.clientId !== bill.clientId) await lockClient(tx, input.clientId);
+  const reuse = await unwindBill(tx, bill);
+  const { billDate, ctx: editCtx, body } = editInputs(ctx, bill, input);
+
+  const priced = await priceBill(tx, editCtx, body, { strict: true });
+  const updated = await tx.bill.update({ where: { id: bill.id }, data: billFields(priced, body) });
+  await applyBill(tx, editCtx, updated, priced, body, { billDate, ...reuse });
+  // Gift cards the new version no longer sells (none of them were spent).
+  if (reuse.giftCardPool.length) await tx.giftCard.deleteMany({ where: { id: { in: reuse.giftCardPool.map((g) => g.id) } } });
+}
+
+class Rollback extends Error {
+  constructor(value) {
+    super('rollback');
+    this.value = value;
+  }
+}
+
+/** Price an edit exactly as editBill would, inside a transaction that is always rolled back. */
+export async function previewBillEdit(prisma, ctx, billId, input, txOptions) {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const bill = await lockedBillForEdit(tx, ctx, billId);
+      await unwindBill(tx, bill);
+      const { ctx: editCtx, body } = editInputs(ctx, bill, input);
+      const priced = await priceBill(tx, editCtx, body, { strict: false });
+      throw new Rollback(await previewDto(tx, priced));
+    }, txOptions);
+  } catch (err) {
+    if (err instanceof Rollback) return err.value;
+    throw err;
+  }
+  throw new Error('unreachable');
 }

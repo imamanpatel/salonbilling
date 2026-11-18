@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Printer } from 'lucide-react';
+import { Ban, Pencil, Printer } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { formatINR, paiseToRupees, PAYMENT_METHODS } from '@salon/shared';
 import { billPaymentSchema, voidBillSchema } from '@salon/shared/billing';
@@ -18,7 +19,8 @@ export function useBill(billId) {
 }
 
 export default function BillDetailModal({ billId, onClose }) {
-  const { canManage } = useAuth();
+  const { canManage, isSuperadmin } = useAuth();
+  const navigate = useNavigate();
   const bill = useBill(billId);
   const [voiding, setVoiding] = useState(false);
   const b = bill.data;
@@ -38,6 +40,11 @@ export default function BillDetailModal({ billId, onClose }) {
             </Button>
           )}
           <Button variant="secondary" onClick={onClose}>Close</Button>
+          {b && isSuperadmin && b.status !== 'VOID' && !voiding && (
+            <Button variant="secondary" onClick={() => navigate(`/bills/${b.id}/edit`)}>
+              <Pencil className="size-4" /> Edit
+            </Button>
+          )}
           {b && (
             <Button onClick={() => window.open(`/bills/${b.id}/print`, '_blank', 'noopener')}>
               <Printer className="size-4" /> Print

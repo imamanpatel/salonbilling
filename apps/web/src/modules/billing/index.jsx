@@ -8,6 +8,7 @@ export default {
   routes: [
     { path: 'billing/new', element: <PosPage /> },
     { path: 'bills', element: <BillsPage /> },
+    { path: 'bills/:id/edit', element: <PosPage /> },
     { path: 'bills/:id/print', element: <PrintBillPage />, layout: 'bare' },
   ],
   nav: [
