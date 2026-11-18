@@ -57,7 +57,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Team & expenses (M6)', () => {
         branchId, number: `T-${String(billSeq).padStart(6, '0')}`, clientId: fx.client, billedAt, status,
         subtotalPaise: total - tax, discountPaise: 0, taxPaise: tax, totalPaise: total, paidPaise: total, duePaise: 0,
         createdById: fx.users.admin,
-        items: { create: lines.map((l) => ({ ...l, unitPricePaise: Math.round((l.totalPaise - l.taxPaise) / l.qty), discountPaise: 0 })) },
+        items: {
+          create: lines.map(({ staffId, ...l }) => ({
+            ...l,
+            unitPricePaise: Math.round((l.totalPaise - l.taxPaise) / l.qty),
+            discountPaise: 0,
+            providers: { create: staffId ? [{ staffId, sharePaise: l.totalPaise - l.taxPaise, commissionPaise: l.commissionPaise }] : [] },
+          })),
+        },
       },
     });
   }

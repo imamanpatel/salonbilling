@@ -181,7 +181,7 @@ export async function priceBill(db, ctx, body, { strict }) {
       { include: { service: true, clientPackage: { include: { package: { select: { name: true } } } } } },
     ),
   );
-  const staff = byId(await findMany(db.staff, [...new Set(body.items.map((i) => i.staffId).filter(Boolean))], { branchId, isActive: true }));
+  const staff = byId(await findMany(db.staff, [...new Set(body.items.flatMap((i) => i.staffIds))], { branchId, isActive: true }));
   const taxIds = new Set([settings.defaultServiceTaxId, settings.defaultProductTaxId]);
   for (const item of body.items) taxIds.add(item.taxRateId);
   for (const product of products.values()) taxIds.add(product.taxRateId);
@@ -192,14 +192,12 @@ export async function priceBill(db, ctx, body, { strict }) {
   const lines = body.items.map((item, index) => {
     const field = (name) => `items.${index}.${name}`;
     const line = {
-      index, kind: item.kind, qty: item.qty, staffId: item.staffId, staff: null,
+      index, kind: item.kind, qty: item.qty, staff: [],
       serviceId: null, productId: null, packageId: null, membershipPlanId: null, clientPackageItemId: null,
       taxRate: null, noBillDiscount: false, memberDiscount: false, rewardPoints: 0, bonusPoints: 0, ref: null,
     };
-    if (item.staffId) {
-      line.staff = staff.get(item.staffId);
-      if (!line.staff) throw hard(field('staffId'), 'Pick an active staff member of this branch');
-    }
+    line.staff = item.staffIds.map((id) => staff.get(id));
+    if (line.staff.some((s) => !s)) throw hard(field('staffIds'), 'Pick active staff members of this branch');
 
     const priced = (catalogPaise) => {
       if (item.unitPricePaise == null || item.unitPricePaise === catalogPaise) return catalogPaise;
@@ -478,7 +476,7 @@ export async function loadBillDetail(db, branchId, id) {
       createdBy: { select: { name: true } },
       appointment: { select: { id: true, date: true, startTime: true } },
       // BillItem has no position column; rows are inserted one by one in bill order and come back in that order.
-      items: { include: { staff: { select: { id: true, name: true } } } },
+      items: { include: { providers: { include: { staff: { select: { name: true } } }, orderBy: { staff: { name: 'asc' } } } } },
       payments: { orderBy: { receivedAt: 'asc' } },
       giftCardsIssued: { select: { code: true, initialPaise: true, balancePaise: true, expiresOn: true, isActive: true } },
     },
@@ -491,6 +489,7 @@ export async function loadBillDetail(db, branchId, id) {
 
   const items = bill.items.map((item) => ({
     ...item,
+    providers: item.providers.map((p) => ({ id: p.staffId, name: p.staff.name, sharePaise: p.sharePaise, commissionPaise: p.commissionPaise })),
     taxPct: Number(item.taxPct),
     taxablePaise: item.totalPaise - item.taxPaise,
     grossPaise: item.unitPricePaise * item.qty,

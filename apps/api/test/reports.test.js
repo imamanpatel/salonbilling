@@ -114,8 +114,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reports & dashboard', () => {
     const glow = await prisma.package.create({ data: { branchId: a1, name: 'Glow pack', pricePaise: 100000, validityDays: 90 } });
     const gold = await prisma.membershipPlan.create({ data: { branchId: a1, name: 'Gold', pricePaise: 200000, durationDays: 365 } });
 
-    const line = ({ kind = 'SERVICE', name, qty = 1, unit, discount = 0, tax = 0, commission = 0, ...refs }) => ({
+    const line = ({ kind = 'SERVICE', name, qty = 1, unit, discount = 0, tax = 0, commission = 0, staffId, ...refs }) => ({
       kind, name, qty, unitPricePaise: unit, discountPaise: discount, taxPaise: tax, totalPaise: qty * unit - discount + tax, commissionPaise: commission, ...refs,
+      providers: { create: staffId ? [{ staffId, sharePaise: qty * unit - discount, commissionPaise: commission }] : [] },
     });
     const haircut = (extra = {}) => line({ name: 'Haircut', serviceId: fx.haircut, unit: 50000, ...extra });
     const shampooLine = (extra = {}) => line({ kind: 'PRODUCT', name: 'Shampoo', productId: shampoo.id, unit: 30000, ...extra });

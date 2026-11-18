@@ -75,7 +75,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Billing (M4)', () => {
         totalPaise: 50000, paidPaise: 50000, duePaise: 0, pointsEarned: 10,
       });
       expect(bill.items[0]).toMatchObject({ kind: 'SERVICE', name: 'Haircut', qty: 1, unitPricePaise: 50000, totalPaise: 50000, commissionPaise: 5000 });
-      expect(bill.items[0].staff.name).toBe('Stylist One');
+      expect(bill.items[0].providers).toMatchObject([{ id: fx.stylist, name: 'Stylist One', sharePaise: 50000, commissionPaise: 5000 }]);
       expect(bill.payments).toMatchObject([{ kind: 'BILL', method: 'CASH', amountPaise: 50000 }]);
       expect(bill.branch).toMatchObject({ salonName: 'Salon A', name: 'A1' });
       expect(await points(client.id)).toBe(10);
@@ -444,7 +444,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Billing (M4)', () => {
         data: { branchId: fx.a2, kind: 'SERVICE_PROVIDER', name: 'Elsewhere', phone: '9100000099', gender: 'MALE', joinedOn: day('2026-01-01') },
       });
       const badStaff = await createBill(desk, { clientId: client.id, items: [haircut({ staffId: otherStaff.id })] });
-      expect(badStaff.body.error.details['items.0.staffId']).toBeTruthy();
+      expect(badStaff.body.error.details['items.0.staffIds']).toBeTruthy();
+    });
+
+    it('splits a line equally between several providers, each on their own commission rate', async () => {
+      await prisma.staff.update({ where: { id: fx.stylist2 }, data: { serviceCommissionPct: 20 } });
+      try {
+        const client = await newClient();
+        const res = await createBill(desk, {
+          clientId: client.id,
+          items: [{ kind: 'SERVICE', refId: fx.haircut, staffIds: [fx.stylist, fx.stylist2], unitPricePaise: null }],
+          payments: [cash(50000)],
+        });
+        expect(res.status).toBe(201);
+        const [line] = res.body.data.items;
+        expect(line.providers).toEqual([
+          { id: fx.stylist, name: 'Stylist One', sharePaise: 25000, commissionPaise: 2500 },
+          { id: fx.stylist2, name: 'Stylist Two', sharePaise: 25000, commissionPaise: 5000 },
+        ]);
+        expect(line.commissionPaise).toBe(7500);
+
+        const dup = await createBill(desk, { clientId: client.id, items: [{ kind: 'SERVICE', refId: fx.haircut, staffId: fx.stylist, staffIds: [fx.stylist] }] });
+        expect(dup.status).toBe(201);
+        expect(dup.body.data.items[0].providers).toHaveLength(1);
+      } finally {
+        await prisma.staff.update({ where: { id: fx.stylist2 }, data: { serviceCommissionPct: 10 } });
+      }
     });
 
     it('lets only managers adjust points, never below zero', async () => {

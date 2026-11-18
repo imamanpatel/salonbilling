@@ -234,33 +234,38 @@ export async function salesByItem({ prisma, branchId, timeZone }, { from, to, ki
 }
 
 export async function staffReport({ prisma, branchId, timeZone }, { from, to }) {
-  const items = await prisma.billItem.findMany({
-    where: { staffId: { not: null }, kind: { in: SALES_KINDS }, bill: salesBillWhere(branchId, instantRange(from, to, timeZone)) },
-    select: { billId: true, staffId: true, kind: true, qty: true, taxPaise: true, totalPaise: true, commissionPaise: true },
+  // A line done by several providers credits each with their share; it counts as a service for each of them.
+  const shares = await prisma.billItemStaff.findMany({
+    where: { billItem: { kind: { in: SALES_KINDS }, bill: salesBillWhere(branchId, instantRange(from, to, timeZone)) } },
+    select: { staffId: true, billItemId: true, sharePaise: true, commissionPaise: true, billItem: { select: { billId: true, kind: true, qty: true } } },
   });
-  const staffIds = [...new Set(items.map((i) => i.staffId))];
+  const staffIds = [...new Set(shares.map((s) => s.staffId))];
   const staff = await prisma.staff.findMany({
     where: { branchId, OR: [{ isActive: true, kind: 'SERVICE_PROVIDER' }, { id: { in: staffIds } }] },
     select: { id: true, name: true },
   });
 
   const rows = new Map(staff.map((s) => [s.id, { staffId: s.id, name: s.name, services: 0, serviceSalesPaise: 0, productSalesPaise: 0, commissionPaise: 0, bills: new Set() }]));
-  for (const item of items) {
-    const row = rows.get(item.staffId);
+  for (const share of shares) {
+    const row = rows.get(share.staffId);
     if (!row) continue;
-    const taxable = item.totalPaise - item.taxPaise;
+    const item = share.billItem;
     if (item.kind === 'SERVICE') {
       row.services += item.qty;
-      row.serviceSalesPaise += taxable;
-    } else if (item.kind === 'PRODUCT') row.productSalesPaise += taxable;
-    row.commissionPaise += item.commissionPaise;
+      row.serviceSalesPaise += share.sharePaise;
+    } else if (item.kind === 'PRODUCT') row.productSalesPaise += share.sharePaise;
+    row.commissionPaise += share.commissionPaise;
     row.bills.add(item.billId);
   }
   const list = [...rows.values()]
     .map((row) => ({ ...row, bills: row.bills.size }))
     .sort((a, b) => b.serviceSalesPaise + b.productSalesPaise - (a.serviceSalesPaise + a.productSalesPaise) || a.name.localeCompare(b.name));
-  const totals = Object.fromEntries(['services', 'serviceSalesPaise', 'productSalesPaise', 'commissionPaise'].map((k) => [k, sum(list, (r) => r[k])]));
-  totals.bills = new Set(items.map((i) => i.billId)).size;
+  const totals = Object.fromEntries(['serviceSalesPaise', 'productSalesPaise', 'commissionPaise'].map((k) => [k, sum(list, (r) => r[k])]));
+  // Count each service line once, however many providers shared it.
+  const serviceLines = new Map();
+  for (const share of shares) if (share.billItem.kind === 'SERVICE') serviceLines.set(share.billItemId, share.billItem.qty);
+  totals.services = [...serviceLines.values()].reduce((a, b) => a + b, 0);
+  totals.bills = new Set(shares.map((s) => s.billItem.billId)).size;
   return { from, to, rows: list, totals };
 }
 

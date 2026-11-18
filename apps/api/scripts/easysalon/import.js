@@ -278,8 +278,10 @@ async function importBills(branchId, user, model, ids) {
           data: { id: stableId(branchId, 'client-membership', cm.key), clientId, planId: ids.membership.get(cm.plan), branchId, startsOn: fromIsoDate(cm.startsOn), endsOn: fromIsoDate(cm.endsOn), billId, createdAt: bill.billedAt },
         });
       }
+      const itemId = (index) => stableId(billId, 'item', String(index));
       await tx.billItem.createMany({
-        data: bill.items.map((item) => ({
+        data: bill.items.map((item, index) => ({
+          id: itemId(index),
           billId,
           kind: item.kind,
           name: item.fromPackage ? `${item.name} (from package ${item.fromPackage})` : item.name,
@@ -288,7 +290,6 @@ async function importBills(branchId, user, model, ids) {
           packageId: item.package ? ids.package.get(item.package) : null,
           membershipPlanId: item.membership ? ids.membership.get(item.membership) : null,
           clientPackageItemId: item.clientPackageItem ? cpItemId(item.clientPackageItem.cp, item.clientPackageItem.ci) : null,
-          staffId: item.staff ? ids.staff.get(item.staff) : null,
           qty: item.qty,
           unitPricePaise: item.unitPricePaise,
           discountPaise: item.discountPaise,
@@ -297,6 +298,12 @@ async function importBills(branchId, user, model, ids) {
           totalPaise: item.totalPaise,
         })),
       });
+      const credited = bill.items.map((item, index) => ({ item, index })).filter(({ item }) => item.staff && ids.staff.get(item.staff));
+      if (credited.length) {
+        await tx.billItemStaff.createMany({
+          data: credited.map(({ item, index }) => ({ billItemId: itemId(index), staffId: ids.staff.get(item.staff), sharePaise: item.totalPaise - item.taxPaise })),
+        });
+      }
     });
     ids.bill.set(bill, billId);
     if (++created % 250 === 0) console.log(`  bills: ${created}…`);

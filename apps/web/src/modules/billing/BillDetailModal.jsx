@@ -81,7 +81,7 @@ export default function BillDetailModal({ billId, onClose }) {
                       <span className="font-medium text-slate-900">{item.name}</span>
                       <span className="block text-xs text-slate-500">{ITEM_KIND_LABELS[item.kind]}</span>
                     </td>
-                    <td className="px-3 py-2">{item.staff?.name ?? '—'}</td>
+                    <td className="px-3 py-2">{item.providers.length ? item.providers.map((p) => p.name).join(', ') : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{item.qty}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatINR(item.unitPricePaise)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{item.discountPaise ? `−${formatINR(item.discountPaise)}` : '—'}</td>

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
-import { CalendarCheck, CheckCircle2, Gift, MessageCircle, Plus, Printer, Receipt, Search, Trash2, UserRound } from 'lucide-react';
+import { CalendarCheck, CheckCircle2, Gift, MessageCircle, Plus, Printer, Receipt, Search, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { fieldErrors, formatINR, paiseToRupees, PAYMENT_METHODS } from '@salon/shared';
-import { billSchema } from '@salon/shared/billing';
+import { billSchema, MAX_LINE_PROVIDERS } from '@salon/shared/billing';
 import { Badge, Button, Card, CardHeader, Checkbox, cx, Input, Select, Spinner, Textarea } from '../../components/ui.jsx';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../../lib/auth.jsx';
@@ -22,7 +22,7 @@ const newLine = (fields) => ({
   key: (lineSeq += 1),
   refId: null,
   clientPackageItemId: null,
-  staffId: '',
+  staffIds: [],
   qty: '1',
   price: '', // rupees; blank = catalogue (or member) price
   catalogPaise: 0,
@@ -55,7 +55,7 @@ function toPayload(state, taxes) {
         kind: line.kind,
         refId: line.refId,
         clientPackageItemId: line.clientPackageItemId,
-        staffId: line.staffId || null,
+        staffIds: line.staffIds,
         qty: line.qty,
         unitPricePaise: line.price === '' ? null : moneyInput(line.price),
         discount: fixedLine(line) || value === null || value === 0 ? null : { type: line.discountType, value },
@@ -128,7 +128,7 @@ export default function PosPage() {
         kind: 'SERVICE',
         refId: item.serviceId,
         name: item.service?.name ?? service?.name ?? 'Service',
-        staffId: item.staffId ?? '',
+        staffIds: item.staffId ? [item.staffId] : [],
         catalogPaise: service?.pricePaise ?? item.pricePaise,
         price: custom ? paiseToRupees(item.pricePaise) : '',
       });
@@ -421,6 +421,50 @@ function ItemSearch({ catalogue, onAdd }) {
 
 const ROW_COLUMNS = '@2xl:grid-cols-[minmax(0,1.6fr)_minmax(7.5rem,1.4fr)_3.5rem_6.5rem_5.5rem_6rem_2rem]';
 
+/**
+ * Who did a line: one or more staff. Picked staff show as removable chips; the select below adds another.
+ * The line's amount (and so the commission base) is split equally between them.
+ */
+function StaffPicker({ staff, value, onChange }) {
+  const picked = value.map((id) => staff.find((s) => s.id === id) ?? { id, name: 'Staff' });
+  const left = staff.filter((s) => !value.includes(s.id));
+  return (
+    <div className="space-y-1">
+      {picked.length > 0 && (
+        <ul className="flex flex-wrap gap-1">
+          {picked.map((s) => (
+            <li key={s.id} className="inline-flex max-w-full items-center gap-0.5 rounded-md bg-brand-50 py-0.5 pr-0.5 pl-2 text-xs font-medium text-brand-900">
+              <span className="truncate">{s.name}</span>
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((id) => id !== s.id))}
+                className="rounded p-0.5 text-brand-900/60 hover:bg-brand-100 hover:text-brand-900"
+                aria-label={`Remove ${s.name}`}
+              >
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {value.length < MAX_LINE_PROVIDERS && left.length > 0 && (
+        <Select
+          aria-label={picked.length ? 'Add another staff member' : 'Staff'}
+          value=""
+          onChange={(e) => e.target.value && onChange([...value, e.target.value])}
+          className={picked.length ? 'py-1 text-xs' : undefined}
+        >
+          <option value="">{picked.length ? '+ Add staff' : '—'}</option>
+          {left.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </Select>
+      )}
+      {picked.length > 1 && <p className="text-xs text-slate-500">Split equally</p>}
+    </div>
+  );
+}
+
 function FieldLabel({ children }) {
   return <span className="mb-1 block text-xs font-medium text-slate-500 @2xl:sr-only">{children}</span>;
 }
@@ -475,12 +519,7 @@ function LineItems({ lines, priced, staff, errors, canManage, onChange, onRemove
                 {line.kind === 'GIFT_CARD' ? (
                   <span className="block py-2 text-slate-400">—</span>
                 ) : (
-                  <Select aria-label="Staff" value={line.staffId} onChange={(e) => onChange(line.key, { staffId: e.target.value })}>
-                    <option value="">—</option>
-                    {staff.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </Select>
+                  <StaffPicker staff={staff} value={line.staffIds} onChange={(staffIds) => onChange(line.key, { staffIds })} />
                 )}
               </div>
               <div className="min-w-0">

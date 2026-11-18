@@ -79,7 +79,7 @@ export default function PrintBillPage() {
                 <td className="py-1.5 pr-2">{index + 1}</td>
                 <td className="py-1.5 pr-2">
                   {item.name}
-                  {item.staff && <span className="block text-xs text-slate-500">by {item.staff.name}</span>}
+                  {item.providers.length > 0 && <span className="block text-xs text-slate-500">by {item.providers.map((p) => p.name).join(', ')}</span>}
                 </td>
                 <td className="py-1.5 pr-2 text-right">{item.qty}</td>
                 <td className="py-1.5 pr-2 text-right">{formatINR(item.unitPricePaise)}</td>

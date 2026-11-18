@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allocate, billPaymentSchema, billSchema, computeBill, gstSplit, lineDiscountFrom, pointsAdjustmentSchema, roundToRupee,
+  allocate, billPaymentSchema, billSchema, computeBill, gstSplit, lineDiscountFrom, MAX_LINE_PROVIDERS, pointsAdjustmentSchema, roundToRupee,
   voidBillSchema, walletTopupSchema,
 } from './billing.js';
 
@@ -167,8 +167,18 @@ describe('billSchema', () => {
   it('fills defaults', () => {
     const parsed = billSchema.parse(base);
     expect(parsed).toMatchObject({ manualDiscountPaise: 0, redeemPoints: 0, payments: [], sendReceipt: false, couponCode: null });
-    expect(parsed.items[0]).toMatchObject({ qty: 1, discount: null, staffId: null, unitPricePaise: null });
+    expect(parsed.items[0]).toMatchObject({ qty: 1, discount: null, staffIds: [], unitPricePaise: null });
     expect('taxRateId' in parsed.items[0] ? parsed.items[0].taxRateId : undefined).toBeUndefined();
+  });
+
+  it('merges the single staffId into staffIds without duplicates, up to the limit', () => {
+    const a = '11111111-1111-4111-8111-111111111111';
+    const b = '22222222-2222-4222-8222-222222222222';
+    const item = (extra) => billSchema.parse({ ...base, items: [{ ...base.items[0], ...extra }] }).items[0];
+    expect(item({ staffId: a, staffIds: [a, b] })).toMatchObject({ staffIds: [a, b] });
+    expect('staffId' in item({ staffId: a })).toBe(false);
+    const many = Array.from({ length: MAX_LINE_PROVIDERS + 1 }, (_, i) => `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`);
+    expect(billSchema.safeParse({ ...base, items: [{ ...base.items[0], staffIds: many }] }).success).toBe(false);
   });
 
   it('keeps an explicit "no tax" apart from "use the default"', () => {

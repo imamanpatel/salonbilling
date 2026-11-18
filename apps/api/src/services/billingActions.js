@@ -1,5 +1,6 @@
 import { formatINR, percentOf } from '@salon/shared';
 import { normalizeGiftCardCode, randomGiftCardCode } from '@salon/shared/catalogue';
+import { allocate } from '@salon/shared/billing';
 import { config } from '../config.js';
 import { addDaysIso, fromIsoDate, toIsoDate } from '../lib/dates.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
@@ -85,11 +86,14 @@ export async function createBill(tx, ctx, body) {
   });
 
   for (const line of lines) {
-    let commissionPaise = 0;
-    if (line.staff && !line.clientPackageItemId && line.kind !== 'GIFT_CARD') {
-      const pct = line.kind === 'PRODUCT' ? line.staff.productCommissionPct : line.staff.serviceCommissionPct;
-      commissionPaise = percentOf(line.taxablePaise, Number(pct));
-    }
+    // Providers share the line equally; each earns their own commission rate on their share.
+    const earnsCommission = !line.clientPackageItemId && line.kind !== 'GIFT_CARD';
+    const shares = allocate(line.taxablePaise, line.staff.map(() => 1));
+    const providers = line.staff.map((staff, i) => {
+      const pct = line.kind === 'PRODUCT' ? staff.productCommissionPct : staff.serviceCommissionPct;
+      return { staffId: staff.id, sharePaise: shares[i], commissionPaise: earnsCommission ? percentOf(shares[i], Number(pct)) : 0 };
+    });
+    const commissionPaise = providers.reduce((sum, p) => sum + p.commissionPaise, 0);
     const item = await tx.billItem.create({
       data: {
         billId: bill.id,
@@ -100,7 +104,7 @@ export async function createBill(tx, ctx, body) {
         packageId: line.packageId,
         membershipPlanId: line.membershipPlanId,
         clientPackageItemId: line.clientPackageItemId,
-        staffId: line.staff?.id ?? null,
+        providers: { create: providers },
         qty: line.qty,
         unitPricePaise: line.unitPricePaise,
         discountPaise: line.discountPaise,
@@ -117,7 +121,7 @@ export async function createBill(tx, ctx, body) {
       await tx.stockMovement.create({
         data: {
           branchId: ctx.branchId, productId: line.productId, qtyChange: -line.qty, reason: 'SALE', billItemId: item.id,
-          staffId: line.staff?.id ?? null, note: `Bill ${bill.number}`, createdById: ctx.user.id,
+          staffId: line.staff[0]?.id ?? null, note: `Bill ${bill.number}`, createdById: ctx.user.id,
         },
       });
     } else if (line.kind === 'PACKAGE') {

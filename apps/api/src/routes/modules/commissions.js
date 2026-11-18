@@ -13,34 +13,33 @@ router.use(requireRole(ROLES.SUPERADMIN, ROLES.ADMIN));
 
 const SERVICE_KINDS = new Set(['SERVICE', 'PACKAGE', 'MEMBERSHIP']);
 
-const lineWhere = (req, { from, to }) => ({
-  staffId: { not: null },
-  bill: { branchId: req.branchId, status: { not: 'VOID' }, billedAt: businessRange(from, to) },
+// Lines are credited through BillItemStaff: a line done by several providers counts once for each of them,
+// with only their share of its amount and their own commission.
+const shareWhere = (req, { from, to }) => ({
+  billItem: { bill: { branchId: req.branchId, status: { not: 'VOID' }, billedAt: businessRange(from, to) } },
 });
 
 const emptySummary = () => ({ servicesCount: 0, serviceSalesPaise: 0, productSalesPaise: 0, commissionPaise: 0 });
 
-function addLine(summary, { kind, qty, totalPaise, taxPaise, commissionPaise }) {
-  const taxable = totalPaise - taxPaise;
+function addShare(summary, { kind, qty, sharePaise, commissionPaise }) {
   if (kind === 'SERVICE') summary.servicesCount += qty;
-  if (SERVICE_KINDS.has(kind)) summary.serviceSalesPaise += taxable;
-  if (kind === 'PRODUCT') summary.productSalesPaise += taxable;
+  if (SERVICE_KINDS.has(kind)) summary.serviceSalesPaise += sharePaise;
+  if (kind === 'PRODUCT') summary.productSalesPaise += sharePaise;
   summary.commissionPaise += commissionPaise;
   return summary;
 }
 
 router.get('/', async (req, res) => {
   const range = rangeParams(req);
-  const groups = await prisma.billItem.groupBy({
-    by: ['staffId', 'kind'],
-    where: lineWhere(req, range),
-    _sum: { qty: true, totalPaise: true, taxPaise: true, commissionPaise: true },
+  const shares = await prisma.billItemStaff.findMany({
+    where: shareWhere(req, range),
+    select: { staffId: true, sharePaise: true, commissionPaise: true, billItem: { select: { kind: true, qty: true } } },
   });
 
   const byStaff = new Map();
-  for (const g of groups) {
-    const summary = byStaff.get(g.staffId) ?? emptySummary();
-    byStaff.set(g.staffId, addLine(summary, { kind: g.kind, ...g._sum }));
+  for (const share of shares) {
+    const summary = byStaff.get(share.staffId) ?? emptySummary();
+    byStaff.set(share.staffId, addShare(summary, { ...share, ...share.billItem }));
   }
 
   // Active service providers always appear (with zeros), plus anyone who sold something in the range.
@@ -54,19 +53,27 @@ router.get('/', async (req, res) => {
 router.get('/:staffId', async (req, res) => {
   const range = rangeParams(req);
   const staff = await prisma.staff.findFirst({
-    where: { id: req.params.staffId, OR: [{ branchId: req.branchId }, { billItems: { some: { bill: { branchId: req.branchId } } } }] },
+    where: { id: req.params.staffId, OR: [{ branchId: req.branchId }, { billItemShares: { some: { billItem: { bill: { branchId: req.branchId } } } } }] },
   });
   if (!staff) throw notFound('Staff member');
 
-  const items = await prisma.billItem.findMany({
-    where: { ...lineWhere(req, range), staffId: staff.id },
-    include: { bill: { select: { id: true, number: true, billedAt: true } } },
-    orderBy: [{ bill: { billedAt: 'desc' } }, { id: 'asc' }],
+  const shares = await prisma.billItemStaff.findMany({
+    where: { ...shareWhere(req, range), staffId: staff.id },
+    include: {
+      billItem: {
+        include: {
+          bill: { select: { id: true, number: true, billedAt: true } },
+          _count: { select: { providers: true } },
+        },
+      },
+    },
+    orderBy: [{ billItem: { bill: { billedAt: 'desc' } } }, { billItemId: 'asc' }],
   });
 
   const summary = emptySummary();
-  const lines = items.map((item) => {
-    addLine(summary, item);
+  const lines = shares.map((share) => {
+    const item = share.billItem;
+    addShare(summary, { ...share, kind: item.kind, qty: item.qty });
     return {
       id: item.id,
       billId: item.bill.id,
@@ -76,8 +83,11 @@ router.get('/:staffId', async (req, res) => {
       kind: item.kind,
       name: item.name,
       qty: item.qty,
-      taxablePaise: item.totalPaise - item.taxPaise,
-      commissionPaise: item.commissionPaise,
+      /** This provider's share of the line's taxable amount. */
+      taxablePaise: share.sharePaise,
+      /** How many providers the line was split between. */
+      providerCount: item._count.providers,
+      commissionPaise: share.commissionPaise,
     };
   });
   res.json({ data: { staff: staffSummary(staff), ...range, summary, lines } });

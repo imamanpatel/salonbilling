@@ -106,12 +106,15 @@ export function CommissionModal({ member, onClose }) {
       render: (l) => (
         <div>
           <div className="text-slate-900">{l.name}</div>
-          <div className="text-xs text-slate-500">{KIND_LABELS[l.kind] ?? l.kind}</div>
+          <div className="text-xs text-slate-500">
+            {KIND_LABELS[l.kind] ?? l.kind}
+            {l.providerCount > 1 && ` · shared by ${l.providerCount}`}
+          </div>
         </div>
       ),
     },
     { key: 'qty', header: 'Qty', className: 'text-right tabular-nums' },
-    { key: 'taxable', header: 'Taxable', className: 'text-right whitespace-nowrap tabular-nums', render: (l) => formatINR(l.taxablePaise) },
+    { key: 'taxable', header: 'Their share', className: 'text-right whitespace-nowrap tabular-nums', render: (l) => formatINR(l.taxablePaise) },
     { key: 'commission', header: 'Commission', className: 'text-right whitespace-nowrap tabular-nums font-medium', render: (l) => formatINR(l.commissionPaise) },
   ];
 

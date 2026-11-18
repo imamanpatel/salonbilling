@@ -12,6 +12,8 @@ export { DISCOUNT_TYPES, MIN_GIFT_CARD_PAISE } from './catalogue.js';
 /** Item kinds that can be sold on a bill (OPENING_BALANCE rows are only created by data imports). */
 export const BILL_ITEM_KINDS = ['SERVICE', 'PRODUCT', 'PACKAGE', 'MEMBERSHIP', 'GIFT_CARD'];
 export const BILL_STATUSES = ['PAID', 'PARTIAL', 'VOID'];
+/** Most service providers one bill line can be credited to. */
+export const MAX_LINE_PROVIDERS = 5;
 
 /** Line discount in paise: PERCENT `value` is a percentage, FLAT `value` is paise (never more than the line). */
 export function lineDiscountFrom(discount, grossPaise) {
@@ -112,6 +114,9 @@ const billItemSchema = z
     kind: z.enum(BILL_ITEM_KINDS),
     refId: optionalId,
     clientPackageItemId: optionalId,
+    /** Service providers who did this line (its amount is split equally between them). */
+    staffIds: z.array(z.string().uuid('Pick a staff member')).max(MAX_LINE_PROVIDERS, `At most ${MAX_LINE_PROVIDERS} staff per item`).default([]),
+    /** Older single-provider form; merged into staffIds. */
     staffId: optionalId,
     qty: quantity.default(1),
     unitPricePaise: optionalPaise,
@@ -128,7 +133,8 @@ const billItemSchema = z
     if (item.clientPackageItemId && item.kind !== 'SERVICE') issue('clientPackageItemId', 'Only services can be redeemed from a package');
     if (!item.refId && !item.clientPackageItemId) issue('refId', 'Pick an item');
     if (item.kind === 'MEMBERSHIP' && item.qty !== 1) issue('qty', 'Sell one membership per line');
-  });
+  })
+  .transform(({ staffId, ...item }) => ({ ...item, staffIds: [...new Set([...(staffId ? [staffId] : []), ...item.staffIds])] }));
 
 const paymentLineSchema = z
   .object({

@@ -302,7 +302,7 @@ model Staff {
   updatedAt            DateTime  @updatedAt
 
   appointmentItems AppointmentItem[]
-  billItems        BillItem[]
+  billItemShares   BillItemStaff[]
   attendance       Attendance[]
   salaryEntries    SalaryEntry[]
 
@@ -606,8 +606,8 @@ model BillItem {
   /// Set when a service is redeemed from a package the client owns (line price 0).
   clientPackageItemId String?
   clientPackageItem   ClientPackageItem? @relation(fields: [clientPackageItemId], references: [id])
-  staffId             String?
-  staff               Staff?             @relation(fields: [staffId], references: [id])
+  /// Service providers who did this line; the taxable amount is split equally between them.
+  providers           BillItemStaff[]
   qty                 Int
   unitPricePaise      Int
   /// Line discount plus its share of bill-level discounts.
@@ -617,12 +617,26 @@ model BillItem {
   taxPaise            Int
   /// Taxable amount + tax.
   totalPaise          Int
+  /// Sum of the providers' commission.
   commissionPaise     Int                @default(0)
 
   @@index([billId])
-  @@index([staffId])
   @@index([serviceId])
   @@index([productId])
+}
+
+/// One provider's credit for a bill line: their share of its taxable amount and the commission on that share.
+model BillItemStaff {
+  id              String   @id @default(uuid())
+  billItemId      String
+  billItem        BillItem @relation(fields: [billItemId], references: [id], onDelete: Cascade)
+  staffId         String
+  staff           Staff    @relation(fields: [staffId], references: [id])
+  sharePaise      Int
+  commissionPaise Int      @default(0)
+
+  @@unique([billItemId, staffId])
+  @@index([staffId])
 }
 
 model Payment {

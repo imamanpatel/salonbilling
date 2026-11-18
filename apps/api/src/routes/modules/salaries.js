@@ -20,9 +20,9 @@ router.get('/', async (req, res) => {
   const { from, to } = monthRange(month);
   const [entries, commissions] = await Promise.all([
     prisma.salaryEntry.findMany({ where: { branchId: req.branchId, forMonth: month }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
-    prisma.billItem.groupBy({
+    prisma.billItemStaff.groupBy({
       by: ['staffId'],
-      where: { staffId: { not: null }, bill: { branchId: req.branchId, status: { not: 'VOID' }, billedAt: businessRange(from, to) } },
+      where: { billItem: { bill: { branchId: req.branchId, status: { not: 'VOID' }, billedAt: businessRange(from, to) } } },
       _sum: { commissionPaise: true },
     }),
   ]);
